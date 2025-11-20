@@ -13,7 +13,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { Exercise, useWorkouts } from '../context/WorkoutsContext';
+import { Exercise, useWorkouts } from '../../context/WorkoutsContext';
 
 export default function AddWorkoutScreen() {
   const router = useRouter();

@@ -1,19 +1,19 @@
 import React, { useMemo } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
-import { useWorkouts } from '../context/WorkoutsContext';
+import { useWorkouts } from '../../context/WorkoutsContext';
 
 export default function StatsScreen() {
-  const { workouts } = useWorkouts();
+  const { workouts, weeklyGoal } = useWorkouts();
 
-  // Helper för att få YYYY-MM-DD
   const today = new Date();
+
   const getWeekNumber = (d: Date) => {
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     const dayNum = date.getUTCDay() || 7;
@@ -22,19 +22,18 @@ export default function StatsScreen() {
     return Math.ceil(((date.valueOf() - yearStart.valueOf()) / 86400000 + 1) / 7);
   };
 
-  // Veckonummer idag
   const thisWeek = getWeekNumber(today);
   const thisYear = today.getFullYear();
 
-  // Räkna statistik
   const { totalPass, thisWeekPass, lastWeekPass } = useMemo(() => {
     let total = workouts.length;
-
     let weekThis = 0;
     let weekLast = 0;
 
     workouts.forEach((w) => {
       const d = new Date(w.date);
+      if (isNaN(d.getTime())) return;
+
       const week = getWeekNumber(d);
       const year = d.getFullYear();
 
@@ -52,6 +51,9 @@ export default function StatsScreen() {
     };
   }, [workouts]);
 
+  const progress =
+    weeklyGoal > 0 ? Math.min(thisWeekPass / weeklyGoal, 1) : 0;
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" />
@@ -60,6 +62,33 @@ export default function StatsScreen() {
         <Text style={styles.subtitle}>
           Överblick på din träning baserat på pass du loggat.
         </Text>
+
+        {/* Veckomål */}
+        <View style={styles.goalCard}>
+          <Text style={styles.goalTitle}>Veckomål</Text>
+          {weeklyGoal > 0 ? (
+            <>
+              <Text style={styles.goalText}>
+                Mål: {weeklyGoal} pass / vecka
+              </Text>
+              <Text style={styles.goalText}>
+                Den här veckan: {thisWeekPass} / {weeklyGoal}
+              </Text>
+              <View style={styles.progressBarBackground}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { width: `${progress * 100}%` },
+                  ]}
+                />
+              </View>
+            </>
+          ) : (
+            <Text style={styles.goalText}>
+              Inget veckomål satt ännu. Gå till Profil för att välja ett mål.
+            </Text>
+          )}
+        </View>
 
         {/* Total pass */}
         <View style={styles.statCard}>
@@ -103,6 +132,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#cbd5f5',
     marginBottom: 20,
+  },
+  goalCard: {
+    backgroundColor: '#0b1220',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  goalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#e5e7eb',
+    marginBottom: 4,
+  },
+  goalText: {
+    fontSize: 14,
+    color: '#d1d5db',
+  },
+  progressBarBackground: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#111827',
+    marginTop: 10,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#22c55e',
   },
   statCard: {
     backgroundColor: '#0b1220',

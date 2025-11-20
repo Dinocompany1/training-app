@@ -24,6 +24,8 @@ export interface Workout {
 interface WorkoutsContextValue {
   workouts: Workout[];
   addWorkout: (workout: Omit<Workout, 'id'>) => void;
+  weeklyGoal: number;
+  setWeeklyGoal: (goal: number) => void;
 }
 
 const WorkoutsContext = createContext<WorkoutsContextValue | undefined>(
@@ -53,6 +55,8 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
     },
   ]);
 
+  const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
+
   const addWorkout = (workout: Omit<Workout, 'id'>) => {
     const newWorkout: Workout = {
       id: Date.now().toString(),
@@ -62,7 +66,9 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <WorkoutsContext.Provider value={{ workouts, addWorkout }}>
+    <WorkoutsContext.Provider
+      value={{ workouts, addWorkout, weeklyGoal, setWeeklyGoal }}
+    >
       {children}
     </WorkoutsContext.Provider>
   );

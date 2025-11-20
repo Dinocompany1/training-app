@@ -1,15 +1,15 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { useWorkouts, Workout } from '../context/WorkoutsContext';
+import { useWorkouts, Workout } from '../../context/WorkoutsContext';
 
 type GroupedWorkouts = {
   [date: string]: Workout[];
