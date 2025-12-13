@@ -1,53 +1,47 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
+// constants/theme.ts
+export const colors = {
+  // Primär lila-identitet
+  primary: '#a855f7',
+  primaryBright: '#c084fc',
+  secondary: '#7c3aed',
+  accent: '#ec4899',
+  success: '#22c55e',
+  warning: '#f59e0b',
+  // legacy aliases (behåll för kompabilitet)
+  accentBlue: '#7c3aed',
+  accentGreen: '#22c55e',
+  accentPurple: '#c084fc',
 
-import { Platform } from 'react-native';
+  // Neutrala ytor
+  background: '#050414',
+  backgroundSoft: '#0b0a1f',
+  surface: '#0f1024',
+  surfaceElevated: '#131530',
+  cardBorder: 'rgba(168,85,247,0.24)',
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+  // Text
+  textMain: '#f9fafb',
+  textMuted: '#cbd5e1',
+  textSoft: '#94a3b8',
 
-export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+  // Ikoner / chips
+  iconBg: 'rgba(168,85,247,0.14)',
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+export const typography = {
+  display: { fontFamily: 'Georgia', fontSize: 24, lineHeight: 30, fontWeight: '800' as const },
+  title: { fontFamily: 'Georgia', fontSize: 18, lineHeight: 24, fontWeight: '800' as const },
+  subtitle: { fontFamily: 'System', fontSize: 14, lineHeight: 20, fontWeight: '600' as const },
+  body: { fontFamily: 'System', fontSize: 13, lineHeight: 18, fontWeight: '400' as const },
+  bodyBold: { fontFamily: 'System', fontSize: 13, lineHeight: 18, fontWeight: '700' as const },
+  caption: { fontFamily: 'System', fontSize: 12, lineHeight: 16, fontWeight: '500' as const },
+  micro: { fontFamily: 'System', fontSize: 11, lineHeight: 14, fontWeight: '500' as const },
+};
+
+export const gradients = {
+  appBackground: ['#030312', '#050414', '#0a0820'],
+  progress: ['#a855f7', '#7c3aed'],
+  primaryButton: ['#a855f7', '#c084fc'],
+  streak: ['#7c3aed', '#c084fc'],
+  outlineFill: ['#0b0a1f', '#0f1024'],
+};

@@ -1,139 +1,779 @@
+// app/workout/[id].tsx
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import { ArrowLeft, Calendar as CalendarIcon, ListChecks, Pencil, Play, Save, Trash2 } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
 import {
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import GlassCard from '../../components/ui/GlassCard';
+import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { toast } from '../../utils/toast';
 
-export default function WorkoutDetailsScreen() {
-  const router = useRouter();
+export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { workouts } = useWorkouts();
+  const router = useRouter();
+  const { workouts, removeWorkout, updateWorkout, addWorkout } = useWorkouts();
 
-  const workout = workouts.find((w) => w.id === id);
+  const workout = useMemo(
+    () => workouts.find((w) => w.id === id),
+    [workouts, id]
+  );
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [title, setTitle] = useState(workout?.title ?? '');
+  const [date, setDate] = useState(workout?.date ?? '');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerDate, setPickerDate] = useState<Date>(() => {
+    if (workout?.date) {
+      const parsed = new Date(workout.date);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  });
+  const [notes, setNotes] = useState(workout?.notes ?? '');
+  const [detailError, setDetailError] = useState('');
+  const [editedExercises, setEditedExercises] = useState(() => {
+    if (!workout?.exercises) return [];
+    return workout.exercises.map((ex) => ({
+      ...ex,
+      performedSets:
+        ex.performedSets && ex.performedSets.length > 0
+          ? ex.performedSets
+          : Array.from({ length: ex.sets }).map(() => ({
+              reps: ex.reps || '0',
+              weight: ex.weight || 0,
+              done: false,
+            })),
+    }));
+  });
 
   if (!workout) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="light-content" />
-        <View style={styles.container}>
-          <Text style={styles.title}>Pass hittades inte</Text>
-          <Text style={styles.text}>
-            Kunde inte hitta träningspasset. Prova gå tillbaka till hemsidan.
-          </Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Text style={styles.backButtonText}>Tillbaka</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.full, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#020617' }]}>
+        <Text style={styles.notFoundText}>Kunde inte hitta det här passet.</Text>
+      </View>
     );
   }
 
+  const handleDelete = () => {
+    Alert.alert(
+      'Ta bort pass',
+      'Är du säker på att du vill ta bort detta pass?',
+      [
+        { text: 'Avbryt', style: 'cancel' },
+        {
+          text: 'Ta bort',
+          style: 'destructive',
+          onPress: () => {
+            const removed = workout;
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            removeWorkout(workout.id);
+            toast('Pass borttaget');
+            Alert.alert('Borttaget', 'Passet togs bort.', [
+              {
+                text: 'Ångra',
+                style: 'default',
+                onPress: () => {
+                  Haptics.selectionAsync();
+                  addWorkout(removed);
+                },
+              },
+              {
+                text: 'OK',
+                style: 'default',
+                onPress: () => router.back(),
+              },
+            ]);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSave = () => {
+    const trimmedTitle = title.trim();
+
+    if (!trimmedTitle) {
+      Alert.alert('Fel', 'Titeln får inte vara tom.');
+      return;
+    }
+
+    const updatedExercises =
+      editedExercises.length > 0
+        ? editedExercises.map((ex) => ({
+            ...ex,
+            sets: ex.performedSets?.length || ex.sets,
+          }))
+        : workout.exercises;
+
+    const updatedWorkout = {
+      ...workout,
+      title: trimmedTitle,
+      date,
+      notes,
+      exercises: updatedExercises,
+    };
+
+    updateWorkout(updatedWorkout);
+    toast('Pass sparat');
+    setIsEditing(false);
+    Alert.alert('Sparat', 'Passet har uppdaterats.');
+  };
+
+  const handleDateChange = (
+    event: DateTimePickerEvent,
+    selectedDate?: Date
+  ) => {
+    if (event.type === 'dismissed') {
+      setShowDatePicker(false);
+      return;
+    }
+    const nextDate = selectedDate || pickerDate;
+    setShowDatePicker(false);
+    setPickerDate(nextDate);
+    setDate(nextDate.toISOString().slice(0, 10));
+    setDetailError('');
+  };
+
+  const handleExercisePress = (exerciseName: string) => {
+    router.push(`/exercise/${encodeURIComponent(exerciseName)}`);
+  };
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.date}>{workout.date}</Text>
-        <Text style={styles.title}>{workout.title}</Text>
-        {workout.notes ? (
-          <Text style={styles.notes}>{workout.notes}</Text>
+    <LinearGradient
+      colors={gradients.appBackground}
+      style={styles.full}
+    >
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* TILLBAKA + TITEL */}
+        <View style={styles.topRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={18} color={colors.textMain} />
+          </TouchableOpacity>
+          <Text style={styles.screenTitle}>Passdetaljer</Text>
+        </View>
+
+        {/* PASSINFO */}
+        <GlassCard style={styles.card}>
+          {isEditing ? (
+            <>
+              <Text style={styles.label}>Titel</Text>
+              <TextInput
+                value={title}
+                onChangeText={(t) => {
+                  if (t.length > 60) {
+                    setDetailError('Titel max 60 tecken.');
+                    setTitle(t.slice(0, 60));
+                  } else {
+                    setDetailError('');
+                    setTitle(t);
+                  }
+                }}
+                style={styles.input}
+                placeholder="Titel"
+                placeholderTextColor="#64748b"
+                maxLength={60}
+              />
+
+              <Text style={[styles.label, { marginTop: 10 }]}>Datum</Text>
+              <View style={styles.datePickerRow}>
+                <TouchableOpacity
+                  style={styles.datePickerField}
+                  onPress={() => setShowDatePicker(true)}
+                  activeOpacity={0.9}
+                  accessibilityLabel="Välj datum"
+                  accessibilityRole="button"
+                >
+                  <CalendarIcon size={16} color={colors.textMain} />
+                  <Text style={styles.datePickerText}>
+                    {date || 'Välj datum'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={styles.dateQuickRow}>
+                  {[
+                    { label: 'Idag', value: new Date() },
+                    {
+                      label: 'Imorgon',
+                      value: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                    },
+                  ].map((d) => {
+                    const iso = d.value.toISOString().slice(0, 10);
+                    const active = date === iso;
+                    return (
+                      <TouchableOpacity
+                        key={d.label}
+                        style={[
+                          styles.dateQuickChip,
+                          active && styles.dateQuickChipActive,
+                        ]}
+                        onPress={() => {
+                          setDate(iso);
+                          setPickerDate(d.value);
+                          setDetailError('');
+                          Haptics.selectionAsync();
+                        }}
+                        accessibilityLabel={`Välj ${d.label}`}
+                        accessibilityRole="button"
+                      >
+                        <Text
+                          style={[
+                            styles.dateQuickChipText,
+                            active && styles.dateQuickChipTextActive,
+                          ]}
+                        >
+                          {d.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Text style={[styles.label, { marginTop: 10 }]}>Anteckningar</Text>
+              <TextInput
+                value={notes}
+                onChangeText={(t) => {
+                  if (t.length > 220) {
+                    setDetailError('Anteckningar max 220 tecken.');
+                    setNotes(t.slice(0, 220));
+                  } else {
+                    setDetailError('');
+                    setNotes(t);
+                  }
+                }}
+                style={[styles.input, styles.notesInput]}
+                placeholder="Anteckningar om passet"
+                placeholderTextColor="#64748b"
+                multiline
+                maxLength={220}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={styles.workoutTitle}>{workout.title}</Text>
+              <Text style={styles.workoutDate}>{workout.date}</Text>
+              {workout.sourceTemplateId ? (
+                <Text style={styles.templateBadge}>Rutin</Text>
+              ) : null}
+              {workout.notes ? (
+                <Text style={styles.workoutNotes}>{workout.notes}</Text>
+              ) : (
+                <Text style={styles.workoutNotesPlaceholder}>
+                  Inga anteckningar
+                </Text>
+              )}
+            </>
+          )}
+        </GlassCard>
+
+        {/* KNAPPAR: TA BORT / REDIGERA / SPARA */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={[styles.button, styles.deleteButton]}
+            onPress={handleDelete}
+          >
+            <Trash2 size={16} color="#fee2e2" />
+            <Text style={styles.buttonText}>Ta bort pass</Text>
+          </TouchableOpacity>
+
+          {isEditing ? (
+              <TouchableOpacity
+                style={[styles.button, styles.saveButton]}
+                onPress={handleSave}
+                accessibilityLabel="Spara pass"
+                accessibilityRole="button"
+              >
+                <Save size={16} color="#022c22" />
+                <Text style={styles.buttonTextDark}>Spara</Text>
+              </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.button, styles.editButton]}
+              onPress={() => {
+                setTitle(workout.title);
+                setDate(workout.date);
+                setNotes(workout.notes ?? '');
+                setIsEditing(true);
+              }}
+              accessibilityLabel="Redigera pass"
+              accessibilityRole="button"
+            >
+              <Pencil size={16} color="#e5e7eb" />
+              <Text style={styles.buttonText}>Redigera</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {workout.sourceTemplateId ? (
+          <TouchableOpacity
+            style={[styles.button, styles.saveButton, { marginTop: 6 }]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.replace({
+                pathname: '/workout/quick-workout',
+                params: {
+                  title: workout.title,
+                  color: workout.color,
+                  templateId: workout.sourceTemplateId,
+                },
+              });
+            }}
+            accessibilityLabel="Starta pass från denna rutin igen"
+            accessibilityRole="button"
+          >
+            <Play size={16} color="#022c22" />
+            <Text style={styles.buttonTextDark}>Starta rutinen igen</Text>
+          </TouchableOpacity>
+        ) : null}
+        {detailError ? (
+          <Text style={[styles.label, { color: '#fca5a5', marginBottom: 4 }]}>
+            {detailError}
+          </Text>
         ) : null}
 
-        <Text style={styles.sectionTitle}>
-          Övningar ({workout.exercises.length})
-        </Text>
+        {/* ÖVNINGAR I PASSET */}
+        <GlassCard style={[styles.card, { marginTop: 14 }]}>
+          <Text style={styles.sectionTitle}>Övningar i passet</Text>
+          <Text style={styles.sectionSub}>
+            Tryck på en övning för att se din historik och progression.
+          </Text>
 
-        {workout.exercises.map((ex) => (
-          <View key={ex.id} style={styles.exerciseCard}>
-            <Text style={styles.exerciseName}>{ex.name}</Text>
-            <Text style={styles.exerciseDetails}>
-              {ex.sets} set · {ex.reps} reps
-              {ex.weight ? ` · ${ex.weight} kg` : ''}
+          {(!workout.exercises || workout.exercises.length === 0) && (
+            <Text style={styles.emptyText}>
+              Inga övningar registrerade för detta pass.
             </Text>
-          </View>
-        ))}
+          )}
 
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backButtonText}>Tillbaka</Text>
-        </TouchableOpacity>
+          {workout.exercises && workout.exercises.length > 0 && (
+            <View style={styles.exerciseList}>
+              {editedExercises.map((ex) => (
+                <View key={ex.id} style={styles.exerciseItem}>
+                  <TouchableOpacity
+                    onPress={() => handleExercisePress(ex.name)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.exerciseHeaderRow}>
+                      <Text style={styles.exerciseName}>{ex.name}</Text>
+                      <Text style={styles.exerciseMetaRight}>
+                        {ex.sets} set · {ex.reps} reps
+                      </Text>
+                    </View>
+                    <Text style={styles.exerciseMeta}>
+                      Vikt: {ex.weight} kg
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.performedSetsBox}>
+                    <View style={styles.performedSetsHeader}>
+                      <ListChecks size={14} color={colors.textSoft} />
+                      <Text style={styles.performedSetsTitle}>Loggade set</Text>
+                    </View>
+                    {ex.performedSets?.map((s, idx) => (
+                      <View key={`${ex.id}-${idx}`} style={styles.performedSetRow}>
+                        <Text style={styles.performedSetLabel}>Set {idx + 1}</Text>
+                        <View style={styles.performedInputs}>
+                          <TextInput
+                            style={styles.performedInput}
+                            value={String(s.reps)}
+                            maxLength={6}
+                            onChangeText={(t) =>
+                              setEditedExercises((prev) =>
+                                prev.map((item) =>
+                                  item.id === ex.id
+                                    ? {
+                                        ...item,
+                                        performedSets: item.performedSets?.map(
+                                          (ps, pIdx) =>
+                                            pIdx === idx ? { ...ps, reps: t } : ps
+                                        ),
+                                      }
+                                    : item
+                                )
+                              )
+                            }
+                            accessibilityLabel="Ändra reps"
+                            accessibilityRole="adjustable"
+                            keyboardType="numeric"
+                          />
+                          <TextInput
+                            style={styles.performedInput}
+                            value={String(s.weight)}
+                            maxLength={5}
+                            onChangeText={(t) => {
+                              const cleaned = t.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                              const num = parseFloat(cleaned);
+                              if (Number.isNaN(num) || num < 0) {
+                                setDetailError('Vikt måste vara ett tal ≥ 0.');
+                                return;
+                              }
+                              setDetailError('');
+                              setEditedExercises((prev) =>
+                                prev.map((item) =>
+                                  item.id === ex.id
+                                    ? {
+                                        ...item,
+                                        performedSets: item.performedSets?.map(
+                                          (ps, pIdx) =>
+                                            pIdx === idx
+                                              ? { ...ps, weight: num }
+                                              : ps
+                                        ),
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            accessibilityLabel="Ändra vikt"
+                            accessibilityRole="adjustable"
+                            keyboardType="numeric"
+                          />
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.selectionAsync();
+                              setEditedExercises((prev) =>
+                                prev.map((item) =>
+                                  item.id === ex.id
+                                    ? {
+                                        ...item,
+                                        performedSets: item.performedSets?.map(
+                                          (ps, pIdx) =>
+                                            pIdx === idx ? { ...ps, done: !ps.done } : ps
+                                        ),
+                                      }
+                                    : item
+                                )
+                              );
+                            }}
+                            style={[
+                              styles.setButton,
+                              s.done && styles.setButtonDone,
+                              { paddingHorizontal: 8, paddingVertical: 6 },
+                            ]}
+                            activeOpacity={0.9}
+                            accessibilityLabel={
+                              s.done
+                                ? 'Set markerat klart, tryck för att ångra'
+                                : 'Markera set som klart'
+                            }
+                            accessibilityRole="button"
+                          >
+                            <Text style={s.done ? styles.setButtonTextDone : styles.setButtonText}>
+                              {s.done ? 'Klart' : 'Markera'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+        </GlassCard>
       </ScrollView>
-    </SafeAreaView>
+      {showDatePicker && (
+        <DateTimePicker
+          value={pickerDate}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+        />
+      )}
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: {
+  full: {
     flex: 1,
-    backgroundColor: '#050816',
   },
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 40,
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
-  date: {
-    fontSize: 13,
-    color: '#9ca3af',
-    marginBottom: 4,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#fff',
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 8,
   },
-  notes: {
-    fontSize: 14,
-    color: '#d1d5db',
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#e5e7eb',
-    marginBottom: 10,
-    marginTop: 10,
-  },
-  exerciseCard: {
-    backgroundColor: '#020617',
-    borderRadius: 10,
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: '#1f2937',
-    padding: 12,
-    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#020617',
   },
-  exerciseName: {
-    color: '#f9fafb',
-    fontSize: 15,
-    fontWeight: '600',
+  screenTitle: {
+    color: colors.textMain,
+    fontSize: 18,
+    fontWeight: '700',
   },
-  exerciseDetails: {
+
+  card: {
+    marginTop: 4,
+  },
+
+  workoutTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  workoutDate: {
     color: '#9ca3af',
     fontSize: 13,
     marginTop: 2,
+    marginBottom: 10,
   },
-  text: {
-    color: '#d1d5db',
+  workoutNotes: {
+    color: '#e5e7eb',
     fontSize: 14,
-    marginBottom: 16,
   },
-  backButton: {
-    marginTop: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
+  workoutNotesPlaceholder: {
+    color: '#6b7280',
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+
+  label: {
+    color: '#e5e7eb',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  input: {
+    backgroundColor: '#020617',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: 'white',
     borderWidth: 1,
-    borderColor: '#4b5563',
+    borderColor: '#1f2937',
+    fontSize: 14,
+  },
+  notesInput: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  datePickerRow: {
+    gap: 6,
+  },
+  datePickerField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#020617',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  datePickerText: {
+    color: colors.textMain,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dateQuickRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dateQuickChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0b1220',
+  },
+  dateQuickChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#14532d',
+  },
+  dateQuickChipText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  dateQuickChipTextActive: {
+    color: '#bbf7d0',
+    fontWeight: '700',
+  },
+
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  button: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  deleteButton: {
+    backgroundColor: '#7f1d1d',
+  },
+  editButton: {
+    backgroundColor: '#1f2937',
+  },
+  saveButton: {
+    backgroundColor: '#22c55e',
+  },
+  buttonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  buttonTextDark: {
+    color: '#022c22',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+
+  sectionTitle: {
+    color: colors.textMain,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  sectionSub: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  emptyText: {
+    color: colors.textSoft,
+    fontSize: 12,
+  },
+
+  exerciseList: {
+    marginTop: 4,
+    gap: 8,
+  },
+  exerciseItem: {
+    backgroundColor: '#020617',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#111827',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  exerciseHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  backButtonText: {
-    color: '#e5e7eb',
-    fontSize: 15,
-    fontWeight: '500',
+  exerciseName: {
+    color: colors.textMain,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  exerciseMetaRight: {
+    color: colors.textSoft,
+    fontSize: 11,
+  },
+  exerciseMeta: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  exerciseMetaVolume: {
+    color: colors.accentBlue,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  performedSetsBox: {
+    marginTop: 8,
+    backgroundColor: '#0b1220',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#111827',
+    padding: 8,
+    gap: 6,
+  },
+  performedSetsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  performedSetsTitle: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  performedSetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  performedSetLabel: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  performedSetValue: {
+    color: colors.textMain,
+    fontSize: 12,
+  },
+  performedInputs: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  performedInput: {
+    minWidth: 60,
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    color: colors.textMain,
+    fontSize: 12,
+  },
+
+  notFoundText: {
+    color: 'white',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  templateBadge: {
+    fontSize: 11,
+    color: '#c4b5fd',
+    backgroundColor: '#1e1b4b',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#312e81',
   },
 });

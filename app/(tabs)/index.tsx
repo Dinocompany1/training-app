@@ -1,131 +1,619 @@
+// app/(tabs)/index.tsx
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { CalendarClock, Flame, ListChecks, Play, Trash2, ArrowUpRight } from 'lucide-react-native';
 import React, { useMemo } from 'react';
 import {
-    FlatList,
-    SafeAreaView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  SafeAreaView,
 } from 'react-native';
-import { useWorkouts, Workout } from '../../context/WorkoutsContext';
+import GlassCard from '../../components/ui/GlassCard';
+import NeonButton from '../../components/ui/NeonButton';
+import GlowProgressBar from '../../components/ui/GlowProgressBar';
+import { colors, gradients, typography } from '../../constants/theme';
+import { useWorkouts } from '../../context/WorkoutsContext';
+import { toast } from '../../utils/toast';
+import SkeletonCard from '../../components/ui/SkeletonCard';
+import SkeletonRow from '../../components/ui/SkeletonRow';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { workouts, weeklyGoal } = useWorkouts();
+  const { workouts, weeklyGoal, templates, removeWorkout, addWorkout } = useWorkouts();
 
   const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  const getWeekNumber = (d: Date) => {
-    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const dayNum = date.getUTCDay() || 7;
-    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-    return Math.ceil(((date.valueOf() - yearStart.valueOf()) / 86400000 + 1) / 7);
+  const workoutsToday = workouts.filter((w) => w.date === todayStr);
+  const latestWorkout = useMemo(() => {
+    if (workouts.length === 0) return null;
+    const sorted = [...workouts].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    // Visa helst senaste genomförda passet, annars senaste planerade
+    const latestCompleted = sorted.find((w) => w.isCompleted);
+    return latestCompleted || sorted[0];
+  }, [workouts]);
+  const latestTemplateInfo = useMemo(() => {
+    if (!latestWorkout?.sourceTemplateId) return null;
+    const t = templates.find((tpl) => tpl.id === latestWorkout.sourceTemplateId);
+    return t ? { name: t.name, color: t.color } : null;
+  }, [latestWorkout, templates]);
+  const handleDeleteLatest = () => {
+    if (!latestWorkout) return;
+    Alert.alert('Ta bort pass', `Vill du ta bort "${latestWorkout.title}"?`, [
+      { text: 'Avbryt', style: 'cancel' },
+      {
+        text: 'Ta bort',
+        style: 'destructive',
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          removeWorkout(latestWorkout.id);
+          toast('Pass borttaget');
+          Alert.alert('Borttaget', 'Passet togs bort.', [
+            {
+              text: 'Ångra',
+              style: 'default',
+              onPress: () => {
+                Haptics.selectionAsync();
+                addWorkout(latestWorkout);
+              },
+            },
+            { text: 'OK', style: 'default' },
+          ]);
+        },
+      },
+    ]);
   };
 
-  const thisWeek = getWeekNumber(today);
-  const thisYear = today.getFullYear();
-
-  const { totalPass, thisWeekPass, lastWeekPass } = useMemo(() => {
-    let total = workouts.length;
-    let weekThis = 0;
-    let weekLast = 0;
-
-    workouts.forEach((w) => {
-      const d = new Date(w.date);
-      if (isNaN(d.getTime())) return;
-
-      const week = getWeekNumber(d);
-      const year = d.getFullYear();
-
-      if (year === thisYear && week === thisWeek) {
-        weekThis++;
-      } else if (year === thisYear && week === thisWeek - 1) {
-        weekLast++;
-      }
-    });
-
-    return {
-      totalPass: total,
-      thisWeekPass: weekThis,
-      lastWeekPass: weekLast,
-    };
+  const nextPlanned = useMemo(() => {
+    const nowDate = todayStr;
+    const future = workouts.filter((w) => w.date >= nowDate);
+    if (future.length === 0) return null;
+    return future.sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    )[0];
   }, [workouts]);
 
-  const handleOpenDetails = (id: string) => {
-    router.push(`/workout/${id}`);
-  };
+  const workoutsThisWeek = useMemo(() => {
+    const startOfWeek = new Date(today);
+    const day = startOfWeek.getDay(); // 0–6, sön=0
+    const diff = (day + 6) % 7; // hur många dagar sedan måndag
+    startOfWeek.setDate(startOfWeek.getDate() - diff);
 
-  const renderWorkout = ({ item }: { item: Workout }) => (
-    <TouchableOpacity
-      onPress={() => handleOpenDetails(item.id)}
-      style={styles.workoutCard}
-    >
-      <Text style={styles.workoutDate}>{item.date}</Text>
-      <Text style={styles.workoutTitle}>{item.title}</Text>
-      {item.notes ? (
-        <Text style={styles.workoutNotes} numberOfLines={2}>
-          {item.notes}
-        </Text>
-      ) : null}
-      <Text style={styles.workoutExercises}>
-        {item.exercises.length} övning{item.exercises.length === 1 ? '' : 'ar'}
-      </Text>
-      <Text style={styles.tapHint}>Tryck för detaljer</Text>
-    </TouchableOpacity>
-  );
+    return workouts.filter((w) => {
+      const d = new Date(w.date);
+      if (isNaN(d.getTime())) return false;
+      return d >= startOfWeek && d <= today;
+    });
+  }, [workouts]);
+
+  // Enkel streak-beräkning
+  const streak = useMemo(() => {
+    if (workouts.length === 0) return 0;
+
+    const uniqueDates = Array.from(
+      new Set(workouts.map((w) => w.date))
+    ).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+    let count = 0;
+    const todayOnly = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    );
+
+    const latest = new Date(uniqueDates[0]);
+    const latestOnly = new Date(
+      latest.getFullYear(),
+      latest.getMonth(),
+      latest.getDate()
+    );
+    const diffLatest = Math.floor(
+      (todayOnly.getTime() - latestOnly.getTime()) /
+        (1000 * 60 * 60 * 24)
+    );
+    if (diffLatest > 1) return 0;
+
+    for (let i = 0; i < uniqueDates.length; i++) {
+      const d = new Date(uniqueDates[i]);
+      const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const diff = Math.floor(
+        (todayOnly.getTime() - dOnly.getTime()) /
+          (1000 * 60 * 60 * 24)
+      );
+      if (diff === count || diff === count + 1) {
+        count++;
+      } else {
+        break;
+      }
+    }
+
+    return count;
+  }, [workouts, today]);
+
+  const latestTemplate = useMemo(() => {
+    if (!templates || templates.length === 0) return null;
+    const withUsage = templates.map((t) => {
+      const lastUse = workouts
+        .filter((w) => w.sourceTemplateId === t.id)
+        .map((w) => w.date)
+        .sort()
+        .pop();
+      return { ...t, lastUse };
+    });
+    const recent = withUsage
+      .filter((t) => t.lastUse)
+      .sort((a, b) => (b.lastUse || '').localeCompare(a.lastUse || ''));
+    if (recent.length > 0) return recent[0];
+    return templates[0];
+  }, [templates, workouts]);
+
+  const hasWorkoutToday = workoutsToday.length > 0;
+  const weeklyProgress = weeklyGoal > 0 ? Math.min(1, workoutsThisWeek.length / weeklyGoal) : 0;
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" />
-      <View style={styles.container}>
-        <Text style={styles.appTitle}>Din träningsöversikt</Text>
-        <Text style={styles.subtitle}>
-          Här ser du en snabb överblick av din vecka och dina senaste pass.
-        </Text>
+      <View style={styles.full}>
+        <LinearGradient
+          colors={gradients.appBackground}
+          style={StyleSheet.absoluteFill}
+        />
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+        {/* dekorativa glows borttagna för renare layout */}
+        {/* Header */}
+        <GlassCard style={styles.heroCard} elevated={false}>
+          <View style={styles.heroRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Dagens läge ✨</Text>
+              <Text style={styles.subtitle}>
+                Din personliga träningshub – streaks, dopamin och tydliga actions.
+              </Text>
+              <View style={styles.heroBadges}>
+                <View style={styles.heroBadge}>
+                  <Flame size={14} color={colors.accentPink} />
+                  <Text style={styles.heroBadgeText}>Streak {streak} dagar</Text>
+                </View>
+                <View style={styles.heroBadge}>
+                  <CalendarClock size={14} color={colors.primary} />
+                  <Text style={styles.heroBadgeText}>
+                    {workoutsThisWeek.length}/{weeklyGoal} denna vecka
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.heroCTA}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/workout/quick-workout');
+              }}
+              activeOpacity={0.9}
+            >
+              <Play size={16} color="#0b1024" />
+              <Text style={styles.heroCTAText}>Starta pass</Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{thisWeekPass}</Text>
-            <Text style={styles.statLabel}>Den här veckan</Text>
+        {/* Streak / veckomål */}
+        <GlassCard style={styles.streakCard} elevated={false}>
+          <View style={styles.streakRow}>
+            <View style={styles.streakBadge}>
+              <Flame size={16} color="#fb923c" />
+              <Text style={styles.streakBadgeText}>{streak} dagar i rad</Text>
+            </View>
+            <View>
+              <Text style={styles.streakLabel}>Veckomål</Text>
+              <Text style={styles.streakValue}>
+                {workoutsThisWeek.length}/{weeklyGoal || 0} pass
+              </Text>
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{lastWeekPass}</Text>
-            <Text style={styles.statLabel}>Förra veckan</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{totalPass}</Text>
-            <Text style={styles.statLabel}>Totalt</Text>
-          </View>
-        </View>
+          <GlowProgressBar value={weeklyProgress} />
+          <Text style={styles.streakHint}>
+            Håll streaken vid liv och sikta på ditt mål den här veckan.
+          </Text>
+        </GlassCard>
 
-        {weeklyGoal > 0 ? (
-          <Text style={styles.goalText}>
-            Veckomål: {weeklyGoal} pass · Den här veckan: {thisWeekPass}/{weeklyGoal}
-          </Text>
-        ) : (
-          <Text style={styles.goalText}>
-            Inget veckomål satt. Gå till Profil för att lägga till ett.
-          </Text>
+        {/* DAGENS PASS */}
+        <GlassCard style={styles.card} elevated={false}>
+          <View style={styles.rowBetween}>
+            <View style={styles.row}>
+              <View style={styles.iconCircle}>
+                <CalendarClock size={18} color={colors.accentPurple} />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Dagens schema</Text>
+                <Text style={styles.cardText}>
+                  {hasWorkoutToday
+                    ? 'Du har minst ett pass idag.'
+                    : 'Ingen plan idag – perfekt läge att skapa något.'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {hasWorkoutToday ? (
+            <View style={styles.todayBox}>
+              <Text style={styles.todayLabel}>Planerade pass idag</Text>
+              {workoutsToday.map((w) => (
+                <View key={w.id} style={styles.todayItem}>
+                  <View
+                    style={[
+                      styles.colorDot,
+                      { backgroundColor: w.color || colors.accentBlue },
+                    ]}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.todayTitle}>{w.title}</Text>
+                    {w.notes ? (
+                      <Text style={styles.todayNote} numberOfLines={1}>
+                        {w.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+
+              <View style={styles.todayButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.primaryButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/workout/quick-workout');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Starta pass nu</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.outlineButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/(tabs)/calendar');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Visa kalender</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.restBox}>
+              <Text style={styles.restTitle}>Vilodag? 😴</Text>
+              <Text style={styles.restText}>
+                Du har inget inplanerat pass idag. Vill du lägga till ett snabbt
+                eller planera något framåt?
+              </Text>
+
+              <View style={styles.todayButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.primaryButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/workout/quick-workout');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Starta pass nu</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.secondaryButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/schedule-workout');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Planera pass</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </GlassCard>
+
+        {/* VECKANS PASS */}
+        <GlassCard style={styles.card} elevated={false}>
+          <View style={styles.rowBetween}>
+            <View style={styles.row}>
+              <View style={styles.iconCircle}>
+                <ListChecks size={18} color={colors.accentGreen} />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Pass den här veckan</Text>
+                <Text style={styles.cardText}>
+                  {workoutsThisWeek.length > 0
+                    ? 'Snabb överblick över allt du loggat.'
+                    : 'Inga pass loggade den här veckan ännu.'}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {workoutsThisWeek.length > 0 ? (
+            <View style={styles.weekList}>
+              {[...workoutsThisWeek]
+                .sort(
+                  (a, b) =>
+                    new Date(b.date).getTime() - new Date(a.date).getTime()
+                )
+                .map((w) => (
+                  <TouchableOpacity
+                    key={w.id}
+                    style={styles.weekItem}
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      router.push(`/workout/${w.id}`);
+                    }}
+                  >
+                    <View style={styles.weekDateCol}>
+                      <View
+                        style={[
+                          styles.weekDot,
+                          { backgroundColor: w.color || colors.primary },
+                        ]}
+                      />
+                      <Text style={styles.weekDate}>
+                        {w.date.slice(5)}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.weekTitle}>{w.title}</Text>
+                      <Text style={styles.weekMeta}>
+                        {w.exercises?.length || 0} övningar · {w.isCompleted ? 'Genomfört' : 'Planerat'}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.weekPill,
+                        { borderColor: w.color || colors.primary },
+                      ]}
+                    >
+                      <Text style={styles.weekPillText}>
+                        {w.isCompleted ? 'Klart' : 'Planerat'}
+                      </Text>
+                      <ArrowUpRight size={14} color="#cbd5e1" />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+            </View>
+          ) : (
+            <View style={styles.restBox}>
+              <Text style={styles.restTitle}>Börja veckan starkt</Text>
+              <Text style={styles.restText}>
+                Planera eller logga ett pass för att se listan här.
+              </Text>
+              <View style={styles.todayButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.primaryButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/workout/quick-workout');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Starta pass</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.outlineButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/schedule-workout');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Planera pass</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </GlassCard>
+
+        {/* SENASTE PASS */}
+        {latestWorkout && (
+          <GlassCard style={styles.card} elevated={false}>
+            <View style={styles.rowBetween}>
+              <View style={styles.row}>
+                <View
+                  style={[
+                    styles.iconCircle,
+                    { borderColor: latestWorkout.color || colors.primary },
+                  ]}
+                >
+                  <ListChecks size={18} color={colors.accentGreen} />
+                </View>
+                <View>
+                  <Text style={styles.cardTitle}>Senaste passet</Text>
+                  <Text style={styles.cardText}>
+                    {latestWorkout.title} · {latestWorkout.date}
+                  </Text>
+                  {latestTemplateInfo ? (
+                    <View style={styles.templatePill}>
+                      <View
+                        style={[
+                          styles.templateDot,
+                          { backgroundColor: latestTemplateInfo.color || colors.primary },
+                        ]}
+                      />
+                      <Text style={styles.templatePillText}>
+                        {latestTemplateInfo.name}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+              <View style={[styles.streakPill, { backgroundColor: '#0b1220', borderColor: latestWorkout.color || colors.primary }]}>
+                <Text style={styles.streakPillText}>
+                  {latestWorkout.durationMinutes
+                    ? `${latestWorkout.durationMinutes} min`
+                    : 'Tid okänd'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.todayBox}>
+              <Text style={styles.todayLabel}>
+                {latestWorkout.isCompleted ? 'Klart' : 'Planerat'} ·{' '}
+                {latestWorkout.exercises?.length ?? 0} övningar
+              </Text>
+              <View style={styles.todayButtonsRow}>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.primaryButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push({
+                      pathname: '/workout/[id]',
+                      params: { id: latestWorkout.id },
+                    });
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Öppna pass</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.outlineButton]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/workout/history');
+                  }}
+                >
+                  <Text style={styles.buttonSmallText}>Visa historik</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.buttonSmall, styles.deleteButton]}
+                  onPress={handleDeleteLatest}
+                  accessibilityLabel="Ta bort senaste pass"
+                  accessibilityRole="button"
+                >
+                  <Trash2 size={16} color="#fca5a5" />
+                  <Text style={styles.buttonSmallText}>Ta bort</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </GlassCard>
+        )}
+        {!latestWorkout && (
+          <GlassCard style={styles.card} elevated={false}>
+            <View style={styles.rowBetween}>
+              <View style={styles.row}>
+                <View
+                  style={[
+                    styles.iconCircle,
+                    { borderColor: colors.primary },
+                  ]}
+                >
+                  <ListChecks size={18} color={colors.accentGreen} />
+                </View>
+                <View>
+                  <Text style={styles.cardTitle}>Inget pass ännu</Text>
+                  <Text style={styles.cardText}>
+                    Sparka igång veckan med ett snabbt pass eller planera dagens schema.
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.todayButtonsRow}>
+              <TouchableOpacity
+                style={[styles.buttonSmall, styles.primaryButton]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.replace('/workout/quick-workout');
+                }}
+              >
+                <Play size={16} color="#0b1024" />
+                <Text style={styles.buttonSmallText}>Starta pass</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.buttonSmall, styles.secondaryButton]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push('/schedule-workout');
+                }}
+              >
+                <CalendarClock size={16} color="#0b1024" />
+                <Text style={styles.buttonSmallText}>Planera pass</Text>
+              </TouchableOpacity>
+            </View>
+          </GlassCard>
         )}
 
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => router.push('/(tabs)/add-workout')}
-        >
-          <Text style={styles.addButtonText}>+ Lägg till träningspass</Text>
-        </TouchableOpacity>
+        {/* Snabb stats + streak */}
+        <View style={styles.rowCards}>
+          <GlassCard style={[styles.miniCard, { flex: 1 }]} elevated={false}>
+            {workouts.length === 0 ? (
+              <>
+                <SkeletonRow width="50%" />
+                <SkeletonRow width="40%" />
+                <SkeletonRow width="60%" />
+              </>
+            ) : (
+              <>
+                <Text style={styles.miniLabel}>Den här veckan</Text>
+                <Text style={styles.miniValue}>{workoutsThisWeek.length}</Text>
+                <Text style={styles.miniHint}>Pass loggade</Text>
+                <View style={styles.miniProgressBg}>
+                  <View
+                    style={[
+                      styles.miniProgressFill,
+                      {
+                        width: `${Math.min(
+                          100,
+                          (workoutsThisWeek.length / Math.max(1, weeklyGoal)) *
+                            100
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.miniGoalText}>
+                  Mål: {weeklyGoal} pass/vecka
+                </Text>
+              </>
+            )}
+          </GlassCard>
 
-        <Text style={styles.sectionTitle}>Senaste pass</Text>
+          <GlassCard style={[styles.miniCard, { flex: 1 }]} elevated={false}>
+            {workouts.length === 0 ? (
+              <>
+                <SkeletonRow width="50%" />
+                <SkeletonRow width="30%" />
+                <SkeletonRow width="70%" />
+              </>
+            ) : (
+              <>
+                <View style={styles.row}>
+                  <View style={styles.streakIconCircle}>
+                    <Flame
+                      size={18}
+                      color={streak > 0 ? '#f97316' : '#6b7280'}
+                    />
+                  </View>
+                  <View>
+                    <Text style={styles.miniLabel}>Streak</Text>
+                    {streak > 0 ? (
+                      <Text style={styles.miniValue}>{streak}</Text>
+                    ) : (
+                      <Text style={styles.miniValue}>0</Text>
+                    )}
+                  </View>
+                </View>
+                <Text style={styles.miniHint}>
+                  {streak > 0
+                    ? 'Håll streaken vid liv!'
+                    : 'Logga ett pass idag för att starta en streak.'}
+                </Text>
+              </>
+            )}
+          </GlassCard>
+        </View>
 
-        <FlatList
-          data={workouts}
-          keyExtractor={(item) => item.id}
-          renderItem={renderWorkout}
-          contentContainerStyle={styles.listContent}
-        />
+       
+        </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -134,110 +622,434 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#050816',
+    backgroundColor: colors.background,
+  },
+  full: {
+    flex: 1,
+    backgroundColor: colors.background,
   },
   container: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    position: 'relative',
   },
-  appTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 4,
+  title: {
+    ...typography.display,
+    color: colors.textMain,
   },
   subtitle: {
-    fontSize: 13,
-    color: '#cbd5f5',
-    marginBottom: 16,
+    ...typography.caption,
+    color: colors.textSoft,
+    marginTop: 4,
+    marginBottom: 12,
   },
-  statsRow: {
+  heroCard: {
+    marginBottom: 10,
+    paddingVertical: 14,
+    backgroundColor: '#0b1024cc',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroBadges: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 4,
+    marginTop: 10,
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#0b1220',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+  heroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#0f172a',
     borderWidth: 1,
     borderColor: '#1f2937',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  statNumber: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#22c55e',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: '#e5e7eb',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  goalText: {
+  heroBadgeText: {
+    color: colors.textMuted,
     fontSize: 12,
-    color: '#9ca3af',
-    marginBottom: 8,
-  },
-  addButton: {
-    backgroundColor: '#22c55e',
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 16,
-    marginTop: 4,
-  },
-  addButtonText: {
-    color: '#02131b',
-    fontSize: 16,
     fontWeight: '700',
   },
-  sectionTitle: {
-    fontSize: 18,
-    color: '#e5e7eb',
-    fontWeight: '600',
+  heroCTA: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+  },
+  heroCTAText: {
+    color: '#0b1024',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  streakCard: {
     marginBottom: 10,
   },
-  listContent: {
-    paddingBottom: 24,
+  streakRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  workoutCard: {
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     backgroundColor: '#0b1220',
-    padding: 14,
-    borderRadius: 10,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#1f2937',
   },
-  workoutDate: {
-    fontSize: 12,
-    color: '#9ca3af',
+  streakBadgeText: {
+    ...typography.caption,
+    color: '#fb923c',
+    fontWeight: '700',
+  },
+  streakLabel: {
+    ...typography.micro,
+    color: colors.textMuted,
+  },
+  streakValue: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+  },
+  streakBarBg: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    overflow: 'hidden',
+  },
+  streakBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.accentGreen,
+  },
+  streakHint: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 6,
+  },
+
+  levelCard: {
+    marginTop: 8,
+  },
+  levelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  levelTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  levelIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  levelLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  levelValue: {
+    ...typography.title,
+    fontSize: 18,
+    color: colors.textMain,
+  },
+  xpText: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  xpBarBackground: {
+    width: '100%',
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    borderWidth: 1,
+    borderColor: '#111827',
+    overflow: 'hidden',
+  },
+  xpBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#22c55e',
+  },
+  levelHint: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 8,
+  },
+
+  card: {
+    marginTop: 12,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rowBetween: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  iconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  cardTitle: {
+    ...typography.title,
+    color: colors.textMain,
+  },
+  cardText: {
+    ...typography.caption,
+    color: colors.textSoft,
+    marginTop: 2,
+  },
+
+  todayBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#0b1024',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  todayLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginBottom: 6,
+  },
+  todayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  colorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+  },
+  todayTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+  },
+  todayNote: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+
+  restBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#0b1024',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  restTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
     marginBottom: 4,
   },
-  workoutTitle: {
-    fontSize: 16,
-    color: '#f9fafb',
-    fontWeight: '600',
+  restText: {
+    ...typography.caption,
+    color: colors.textSoft,
+    marginBottom: 8,
   },
-  workoutNotes: {
-    fontSize: 13,
-    color: '#d1d5db',
+  weekList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  weekItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#0b1024',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  weekDateCol: {
+    alignItems: 'center',
+    width: 54,
+    gap: 6,
+  },
+  weekDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  weekDate: {
+    ...typography.caption,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  weekTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+  },
+  weekMeta: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 2,
+  },
+  weekPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    backgroundColor: '#0f172a',
+  },
+  weekPillText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '700',
+  },
+
+  todayButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginTop: 4,
   },
-  workoutExercises: {
-    fontSize: 12,
-    color: '#a5b4fc',
-    marginTop: 4,
+  buttonSmall: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
   },
-  tapHint: {
+  primaryButton: {
+    backgroundColor: colors.success, // Starta pass: grön
+  },
+  secondaryButton: {
+    backgroundColor: colors.primary, // Planera pass: lila
+  },
+  outlineButton: {
+    borderWidth: 1,
+    borderColor: '#4b5563',
+    backgroundColor: 'transparent',
+  },
+  buttonSmallText: {
+    ...typography.caption,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
+  deleteButton: {
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  templatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#312e81',
+    backgroundColor: '#1e1b4b',
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  templatePillText: {
+    color: '#c4b5fd',
     fontSize: 11,
-    color: '#6b7280',
+    fontWeight: '700',
+  },
+
+  rowCards: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  miniCard: {
+    paddingVertical: 10,
+  },
+  miniLabel: {
+    color: colors.textSoft,
+    fontSize: 11,
+  },
+  miniValue: {
+    color: colors.textMain,
+    fontSize: 18,
+    fontWeight: '800',
     marginTop: 4,
+  },
+  miniHint: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  miniProgressBg: {
+    width: '100%',
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    marginTop: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  miniProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  miniGoalText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  streakIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    marginBottom: 4,
+  },
+
+  quickRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
   },
 });
