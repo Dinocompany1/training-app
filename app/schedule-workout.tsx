@@ -31,6 +31,7 @@ import { Exercise, Template, useWorkouts } from '../context/WorkoutsContext';
 import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
 import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
+import { useTranslation } from '../context/TranslationContext';
 
 const MUSCLE_MAP: Record<string, string> = {
   Bröst: 'Bröst',
@@ -40,7 +41,8 @@ const MUSCLE_MAP: Record<string, string> = {
   Armar: 'Armar',
 };
 
-const normalizeMuscleGroup = (name: string) => MUSCLE_MAP[name] || 'Övrigt';
+const normalizeMuscleGroup = (name: string, translate?: (k: string) => string) =>
+  MUSCLE_MAP[name] || translate?.('exercises.groups.Övrigt') || 'Övrigt';
 const MUSCLE_GROUPS = ['Bröst', 'Rygg', 'Ben', 'Axlar', 'Armar', 'Övrigt'];
 
 // Fördefinierade övningar – grupperade
@@ -57,6 +59,7 @@ const COLOR_OPTIONS = [
 export default function ScheduleWorkoutScreen() {
   const router = useRouter();
   const { addWorkout, templates, customExercises } = useWorkouts();
+  const { t } = useTranslation();
 
   // Card 1 – passinfo
   const [title, setTitle] = useState('');
@@ -118,7 +121,7 @@ export default function ScheduleWorkoutScreen() {
       sets: ex.sets,
       reps: ex.reps,
       weight: ex.weight,
-      muscleGroup: ex.muscleGroup || 'Övrigt',
+      muscleGroup: normalizeMuscleGroup(ex.muscleGroup || 'Övrigt', t),
       performedSets: buildInitialPerformedSets(ex.sets, ex.reps, ex.weight),
       done: false,
     })) as Exercise[];
@@ -199,7 +202,7 @@ export default function ScheduleWorkoutScreen() {
         sets: 1,
         reps: '10',
         weight: 0,
-        muscleGroup: normalizeMuscleGroup(group?.group || ''),
+        muscleGroup: normalizeMuscleGroup(group?.group || '', t),
         performedSets: buildInitialPerformedSets(1, '10', 0),
       };
       setSelectedExercises((prev) => [...prev, newExercise]);
@@ -209,7 +212,7 @@ export default function ScheduleWorkoutScreen() {
   const handleAddCustomExercise = () => {
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert('Fel', 'Ange ett namn på din övning.');
+      Alert.alert(t('common.error'), t('schedule.customNameError'));
       return;
     }
 
@@ -219,7 +222,7 @@ export default function ScheduleWorkoutScreen() {
       sets: 1,
       reps: '10',
       weight: 0,
-      muscleGroup: 'Övrigt',
+      muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
       performedSets: buildInitialPerformedSets(1, '10', 0),
     };
 
@@ -357,12 +360,12 @@ export default function ScheduleWorkoutScreen() {
     }
 
     if (selectedExercises.length === 0) {
-      Alert.alert('Inga övningar', 'Lägg till minst en övning.');
+      Alert.alert(t('schedule.errorTitle'), t('schedule.noExercises'));
       return;
     }
 
     if (selectedExercises.some((ex) => Number.isNaN(Number(ex.weight)))) {
-      setWeightError('Vikt måste vara siffror (använd punkt eller komma).');
+      setWeightError(t('schedule.weightError'));
       return;
     }
     setWeightError('');
@@ -396,11 +399,11 @@ export default function ScheduleWorkoutScreen() {
       });
     });
 
-    toast('Planerade pass sparade');
-    Alert.alert('Sparat', 'Dina framtida pass har planerats.', [
-      { text: 'Stanna här', style: 'default' },
+    toast(t('schedule.savedToast'));
+    Alert.alert(t('schedule.savedTitle'), t('schedule.savedBody'), [
+      { text: t('schedule.stay'), style: 'default' },
       {
-        text: 'Öppna kalender',
+        text: t('schedule.openCalendar'),
         style: 'default',
         onPress: () => router.replace('/(tabs)/calendar'),
       },
@@ -422,18 +425,18 @@ export default function ScheduleWorkoutScreen() {
             contentContainerStyle={{ paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
           >
-          <Text style={styles.title}>Planera framtida pass</Text>
+          <Text style={styles.title}>{t('schedule.title')}</Text>
           <Text style={styles.subtitle}>
-            Skapa ett pass, välj ett eller flera datum och fyll i dina övningar.
+            {t('schedule.subtitle')}
           </Text>
 
           {/* CARD 1 – PASSINFO + DATUM */}
           <GlassCard style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>Passinfo</Text>
+                <Text style={styles.cardTitle}>{t('schedule.infoTitle')}</Text>
                 <Text style={styles.cardText}>
-                  Namn, datum och anteckningar för detta planerade pass.
+                  {t('schedule.infoDesc')}
                 </Text>
               </View>
 
@@ -472,7 +475,7 @@ export default function ScheduleWorkoutScreen() {
                       { backgroundColor: c },
                       c === color && styles.colorOptionActive,
                     ]}
-                    accessibilityLabel={`Välj färg ${c}`}
+                    accessibilityLabel={`${t('schedule.colorLabel')} ${c}`}
                     accessibilityRole="button"
                   />
                 ))}
@@ -480,7 +483,7 @@ export default function ScheduleWorkoutScreen() {
             )}
 
             {/* Namn */}
-            <Text style={styles.label}>Titel</Text>
+            <Text style={styles.label}>{t('schedule.nameLabel')}</Text>
             <TextInput
               value={title}
               onChangeText={(t) => {
@@ -488,7 +491,7 @@ export default function ScheduleWorkoutScreen() {
                 setTitle(t.slice(0, 60));
               }}
               style={styles.input}
-              placeholder="Ex. Push, Ben, Helkropp"
+              placeholder={t('schedule.namePlaceholder')}
               placeholderTextColor="#64748b"
               maxLength={60}
             />
@@ -497,24 +500,24 @@ export default function ScheduleWorkoutScreen() {
             ) : null}
 
             {/* Datum + lägg till fler datum */}
-            <Text style={[styles.label, { marginTop: 10 }]}>Datum</Text>
+            <Text style={[styles.label, { marginTop: 10 }]}>{t('schedule.dateLabel')}</Text>
             <View style={styles.dateRow}>
               <TouchableOpacity
                 style={styles.dateInputButton}
                 onPress={() => openDatePicker(dateInput)}
-                accessibilityLabel="Öppna datumväljare"
+                accessibilityLabel={t('schedule.dateOpen')}
                 accessibilityRole="button"
               >
                 <CalendarIcon size={16} color={colors.textMain} />
                 <Text style={styles.dateInputText}>
-                  {dateInput || 'Välj datum'}
+                  {dateInput || t('schedule.datePlaceholder')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.addDateButton}
                 onPress={addDate}
                 activeOpacity={0.9}
-                accessibilityLabel="Lägg till datum"
+                accessibilityLabel={t('schedule.dateAdd')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={18} color="#022c22" />
@@ -536,7 +539,7 @@ export default function ScheduleWorkoutScreen() {
                     setDates([d]);
                     setDateError('');
                   }}
-                  accessibilityLabel={`Snabbval datum ${d === todayStr ? 'Idag' : 'Imorgon'}`}
+                  accessibilityLabel={t('schedule.dateQuickA11y', { isToday: d === todayStr, date: d })}
                   accessibilityRole="button"
                 >
                   <Text
@@ -545,7 +548,7 @@ export default function ScheduleWorkoutScreen() {
                       dateInput === d && styles.quickDateTextActive,
                     ]}
                   >
-                    {d === todayStr ? 'Idag' : d}
+                    {d === todayStr ? t('schedule.today') : d}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -553,13 +556,13 @@ export default function ScheduleWorkoutScreen() {
                 style={styles.datePickerChip}
                 onPress={() => openDatePicker(dateInput)}
               >
-                <Text style={styles.quickDateText}>Välj annat datum</Text>
+                <Text style={styles.quickDateText}>{t('schedule.dateOther')}</Text>
               </TouchableOpacity>
             </View>
 
             {dates.length > 0 && (
               <View style={styles.datesList}>
-                <Text style={styles.sectionLabel}>Valda datum</Text>
+                <Text style={styles.sectionLabel}>{t('schedule.selectedDates')}</Text>
                 {dates.map((d) => (
                   <View key={d} style={styles.dateItemRow}>
                     <TouchableOpacity
@@ -570,7 +573,7 @@ export default function ScheduleWorkoutScreen() {
                         openDatePicker(d);
                         Haptics.selectionAsync();
                       }}
-                      accessibilityLabel={`Ändra datum ${d}`}
+                      accessibilityLabel={t('schedule.dateEdit', d)}
                       accessibilityRole="button"
                       activeOpacity={0.8}
                     >
@@ -583,10 +586,10 @@ export default function ScheduleWorkoutScreen() {
                   <TouchableOpacity
                     onPress={() => removeDate(d)}
                     activeOpacity={0.8}
-                    accessibilityLabel={`Ta bort datum ${d}`}
+                    accessibilityLabel={t('schedule.dateRemove', d)}
                     accessibilityRole="button"
                   >
-                    <Text style={styles.removeText}>Ta bort</Text>
+                    <Text style={styles.removeText}>{t('schedule.remove')}</Text>
                   </TouchableOpacity>
                   </View>
                 ))}
@@ -594,12 +597,12 @@ export default function ScheduleWorkoutScreen() {
             )}
 
             {/* Anteckningar */}
-            <Text style={[styles.label, { marginTop: 10 }]}>Anteckningar</Text>
+            <Text style={[styles.label, { marginTop: 10 }]}>{t('schedule.notesLabel')}</Text>
             <TextInput
               value={notes}
               onChangeText={(t) => {
                 if (t.length > 220) {
-                  setNotesError('Max 220 tecken.');
+                  setNotesError(t('schedule.notesMax'));
                   setNotes(t.slice(0, 220));
                 } else {
                   setNotesError('');
@@ -607,7 +610,7 @@ export default function ScheduleWorkoutScreen() {
                 }
               }}
               style={[styles.input, styles.notesInput]}
-              placeholder="Ex. fokus, tempo, mål med passet..."
+              placeholder={t('schedule.notesPlaceholder')}
               placeholderTextColor="#64748b"
               multiline
               maxLength={220}
@@ -648,7 +651,7 @@ export default function ScheduleWorkoutScreen() {
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>Välj övning</Text>
+                <Text style={styles.actionChipTextPrimary}>{t('schedule.chooseExercise')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -657,11 +660,11 @@ export default function ScheduleWorkoutScreen() {
                   Haptics.selectionAsync();
                   setShowCustomInput((prev) => !prev);
                 }}
-                accessibilityLabel="Lägg till egen övning"
+                accessibilityLabel={t('schedule.addCustom')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>Egen övning</Text>
+                <Text style={styles.actionChipTextSecondary}>{t('schedule.customExercise')}</Text>
               </TouchableOpacity>
 
             <TouchableOpacity
@@ -672,23 +675,23 @@ export default function ScheduleWorkoutScreen() {
                 setShowExerciseList(false);
                 setShowCustomInput(false);
               }}
-              accessibilityLabel="Välj rutin"
+              accessibilityLabel={t('schedule.chooseRoutine')}
               accessibilityRole="button"
             >
               <ListChecks size={14} color="#0b1120" />
-                <Text style={styles.actionChipTextTertiary}>Rutiner</Text>
+                <Text style={styles.actionChipTextTertiary}>{t('schedule.routines')}</Text>
               </TouchableOpacity>
             </View>
 
             {/* EGEN ÖVNING INPUT */}
             {showCustomInput && (
               <View style={styles.customExerciseBox}>
-                <Text style={styles.label}>Namn på egen övning</Text>
+                <Text style={styles.label}>{t('schedule.customLabel')}</Text>
                 <TextInput
                   value={customName}
                   onChangeText={setCustomName}
                   style={styles.input}
-                  placeholder="Ex. Bulgarian split squats"
+                  placeholder={t('schedule.customPlaceholder')}
                   placeholderTextColor="#64748b"
                 />
                 <TouchableOpacity
@@ -699,7 +702,7 @@ export default function ScheduleWorkoutScreen() {
                   }}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.buttonText}>Lägg till övning</Text>
+                  <Text style={styles.buttonText}>{t('schedule.addCustomCta')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -707,13 +710,13 @@ export default function ScheduleWorkoutScreen() {
             {showTemplatePicker && (
               <View style={styles.templateLibrary}>
                 <Text style={styles.sectionLabel}>
-                  Välj en sparad rutin – samma stil som övningslistan.
+                  {t('schedule.templateTitle')}
                 </Text>
                 <View style={styles.templateListCard}>
                   {templates.length === 0 ? (
                     <View style={styles.templateEmpty}>
                       <Text style={styles.emptyText}>
-                        Inga sparade rutiner ännu. Spara ett pass som rutin för att se det här.
+                        {t('schedule.templateEmpty')}
                       </Text>
                     </View>
                   ) : (
@@ -733,7 +736,7 @@ export default function ScheduleWorkoutScreen() {
                             applyTemplate(t);
                           }}
                           activeOpacity={0.85}
-                          accessibilityLabel={`Välj rutin ${t.name}`}
+                          accessibilityLabel={t('schedule.templateA11y', t.name)}
                           accessibilityRole="button"
                         >
                           <View style={styles.templateLeft}>
@@ -778,10 +781,10 @@ export default function ScheduleWorkoutScreen() {
 
             {/* VALDA ÖVNINGAR (namnlista) */}
             <View style={styles.selectedBox}>
-              <Text style={styles.sectionLabel}>Valda övningar</Text>
+              <Text style={styles.sectionLabel}>{t('schedule.selectedExercises')}</Text>
               {selectedExercises.length === 0 ? (
                 <Text style={styles.emptyText}>
-                  Inga övningar ännu. Välj från listan eller lägg till en egen.
+                  {t('schedule.selectedEmpty')}
                 </Text>
               ) : (
                 selectedExercises.map((ex) => (
@@ -816,9 +819,9 @@ export default function ScheduleWorkoutScreen() {
           {/* DETALJKORT – SETS / REPS / VIKT */}
           {showDetails && selectedExercises.length > 0 && (
             <GlassCard style={styles.card}>
-              <Text style={styles.cardTitle}>Detaljer för övningar</Text>
+              <Text style={styles.cardTitle}>{t('schedule.detailsTitle')}</Text>
               <Text style={styles.cardText}>
-                Fyll i reps och vikt per set. Lägg till fler set vid behov.
+                {t('schedule.detailsSubtitle')}
               </Text>
 
               {selectedExercises.map((ex) => {
@@ -852,10 +855,10 @@ export default function ScheduleWorkoutScreen() {
               style={[styles.button, styles.saveButton]}
               onPress={handleSavePlannedWorkouts}
               activeOpacity={0.9}
-              accessibilityLabel="Spara planerade pass"
+              accessibilityLabel={t('schedule.saveA11y')}
               accessibilityRole="button"
             >
-              <Text style={styles.buttonText}>Spara planerade pass</Text>
+              <Text style={styles.buttonText}>{t('schedule.saveCta')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -867,7 +870,7 @@ export default function ScheduleWorkoutScreen() {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Välj datum</Text>
+              <Text style={styles.modalTitle}>{t('schedule.modalTitle')}</Text>
               <Calendar
                 current={calendarSeedDate}
                 onDayPress={handleCalendarSelect}
@@ -896,10 +899,10 @@ export default function ScheduleWorkoutScreen() {
               <TouchableOpacity
                 style={styles.modalClose}
                 onPress={() => setShowCalendarPicker(false)}
-                accessibilityLabel="Stäng datumväljare"
+                accessibilityLabel={t('schedule.modalClose')}
                 accessibilityRole="button"
               >
-                <Text style={styles.modalCloseText}>Stäng</Text>
+                <Text style={styles.modalCloseText}>{t('schedule.close')}</Text>
               </TouchableOpacity>
             </View>
           </View>

@@ -21,35 +21,37 @@ import {
 import GlassCard from '../../components/ui/GlassCard';
 import NeonButton from '../../components/ui/NeonButton';
 import { colors, gradients, typography } from '../../constants/theme';
+import { useTranslation } from '../../context/TranslationContext';
 
 export default function AddWorkoutScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const actionBoxes = [
     {
       key: 'routine',
-      title: 'Skapa rutin',
-      desc: 'Bygg ett återanvändbart pass med dina favoritövningar.',
+      title: t('add.actions.routine.title'),
+      desc: t('add.actions.routine.desc'),
       icon: <PlusCircle size={18} color={colors.accentBlue} />,
       onPress: () => router.push('/routine-builder'),
     },
     {
       key: 'templates',
-      title: 'Sparade rutiner',
-      desc: 'Starta ett pass direkt från dina mallar.',
+      title: t('add.actions.templates.title'),
+      desc: t('add.actions.templates.desc'),
       icon: <ListChecks size={18} color={colors.primary} />,
       onPress: () => router.push('/templates'),
     },
     {
       key: 'schedule',
-      title: 'Planera framtida pass',
-      desc: 'Välj datum så dyker passet upp i kalendern.',
+      title: t('add.actions.schedule.title'),
+      desc: t('add.actions.schedule.desc'),
       icon: <CalendarClock size={18} color={colors.accentPurple} />,
       onPress: () => router.push('/schedule-workout'),
     },
     {
       key: 'library',
-      title: 'Se alla övningar',
-      desc: 'Bläddra bland alla övningar per muskelgrupp.',
+      title: t('add.actions.library.title'),
+      desc: t('add.actions.library.desc'),
       icon: <Dumbbell size={18} color={colors.accentGreen} />,
       onPress: () => router.push('/all-exercises'),
     },
@@ -64,9 +66,9 @@ export default function AddWorkoutScreen() {
           contentContainerStyle={{ paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.title}>Lägg till pass</Text>
+          <Text style={styles.title}>{t('add.title')}</Text>
           <Text style={styles.subtitle}>
-            Bygg, planera eller starta direkt – snabba vägar med neon-känsla.
+            {t('add.subtitle')}
           </Text>
 
           {/* STARTA PASS NU */}
@@ -76,24 +78,24 @@ export default function AddWorkoutScreen() {
                 <Play size={18} color={colors.accentGreen} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>Starta spontanpass</Text>
+                <Text style={styles.cardTitle}>{t('add.quickTitle')}</Text>
                 <Text style={styles.cardText}>
-                  Logga ett spontant pass som du kör direkt på gymmet.
+                  {t('add.quickDesc')}
                 </Text>
               </View>
             </View>
 
             <NeonButton
-              title="🚀 Starta spontanpass"
+              title={t('add.quickCta')}
               onPress={() => {
                 Haptics.selectionAsync();
                 router.push('/workout/quick-workout');
               }}
               style={{ marginTop: 4 }}
               variant="green"
-              accessibilityLabel="Starta ett snabbt pass nu"
+              accessibilityLabel={t('add.quickA11y')}
               accessibilityRole="button"
-              toastMessage="Startar snabbt pass"
+              toastMessage={t('add.quickToast')}
             />
           </GlassCard>
 

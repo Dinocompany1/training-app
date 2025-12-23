@@ -1,9 +1,9 @@
 // app/(tabs)/index.tsx
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { CalendarClock, Flame, ListChecks, Play, Trash2, ArrowUpRight } from 'lucide-react-native';
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import {
   Alert,
   Platform,
@@ -19,62 +19,26 @@ import NeonButton from '../../components/ui/NeonButton';
 import GlowProgressBar from '../../components/ui/GlowProgressBar';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
-import { useTranslation } from '../../context/TranslationContext';
-import { getWeekRange, isDateInRange } from '../../utils/weekRange';
 import { toast } from '../../utils/toast';
 import SkeletonCard from '../../components/ui/SkeletonCard';
 import SkeletonRow from '../../components/ui/SkeletonRow';
-import { loadOngoingQuickWorkout } from '../../utils/ongoingQuickWorkout';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { workouts, weeklyGoal, templates, removeWorkout, addWorkout } = useWorkouts();
-  const { t, lang } = useTranslation();
-  const [ongoingSnapshot, setOngoingSnapshot] = React.useState<any | null>(null);
 
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10); // YYYY-MM-DD
-  const dedupeWorkouts = useCallback((items: typeof workouts) => {
-    const byKey = new Map<string, (typeof workouts)[number]>();
-    items.forEach((w) => {
-      const key = `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
-      const existing = byKey.get(key);
-      if (!existing || (!existing.isCompleted && w.isCompleted)) {
-        byKey.set(key, w);
-      }
-    });
-    return Array.from(byKey.values());
-  }, []);
 
-  const workoutsToday = useMemo(() => {
-    const todays = dedupeWorkouts(workouts.filter((w) => w.date === todayStr));
-    return todays.sort((a, b) =>
-      a.isCompleted === b.isCompleted ? 0 : a.isCompleted ? -1 : 1
-    );
-  }, [dedupeWorkouts, workouts, todayStr]);
-
-  const startPlannedWorkout = useCallback(
-    (w: (typeof workouts)[number]) => {
-      router.push({
-        pathname: '/workout/quick-workout',
-        params: {
-          title: w.title,
-          color: w.color,
-          templateId: w.sourceTemplateId,
-          plannedId: w.id,
-        },
-      });
-    },
-    [router]
-  );
+  const workoutsToday = workouts.filter((w) => w.date === todayStr);
   const latestWorkout = useMemo(() => {
     if (workouts.length === 0) return null;
-    // Visa endast senaste avslutade passet
-    const completed = workouts.filter((w) => w.isCompleted);
-    if (completed.length === 0) return null;
-    return completed.sort(
+    const sorted = [...workouts].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    )[0];
+    );
+    // Visa helst senaste genomförda passet, annars senaste planerade
+    const latestCompleted = sorted.find((w) => w.isCompleted);
+    return latestCompleted || sorted[0];
   }, [workouts]);
   const latestTemplateInfo = useMemo(() => {
     if (!latestWorkout?.sourceTemplateId) return null;
@@ -117,30 +81,18 @@ export default function HomeScreen() {
     )[0];
   }, [workouts]);
 
-  const weekRange = useMemo(() => getWeekRange(today), [todayStr]);
-
   const workoutsThisWeek = useMemo(() => {
-    const inRange = workouts.filter(
-      (w) => w.isCompleted && isDateInRange(w.date, weekRange.start, weekRange.end)
-    );
-    return dedupeWorkouts(inRange);
-  }, [dedupeWorkouts, workouts, weekRange]);
+    const startOfWeek = new Date(today);
+    const day = startOfWeek.getDay(); // 0–6, sön=0
+    const diff = (day + 6) % 7; // hur många dagar sedan måndag
+    startOfWeek.setDate(startOfWeek.getDate() - diff);
 
-  const refreshOngoing = useCallback(() => {
-    loadOngoingQuickWorkout().then((snap) => {
-      if (snap && snap.exercises && snap.exercises.length > 0) {
-        setOngoingSnapshot(snap);
-      } else {
-        setOngoingSnapshot(null);
-      }
+    return workouts.filter((w) => {
+      const d = new Date(w.date);
+      if (isNaN(d.getTime())) return false;
+      return d >= startOfWeek && d <= today;
     });
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      refreshOngoing();
-    }, [refreshOngoing])
-  );
+  }, [workouts]);
 
   // Enkel streak-beräkning
   const streak = useMemo(() => {
@@ -218,90 +170,41 @@ export default function HomeScreen() {
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
-        {ongoingSnapshot && (
-          <GlassCard style={styles.resumeCard} elevated={false}>
-            <View style={styles.resumeHeader}>
-              <View style={styles.resumeIconWrap}>
-                <Play size={16} color="#f97316" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.resumeTitle}>{t('common.resumeTitle')}</Text>
-                <Text style={styles.resumeSubtitle} numberOfLines={1}>
-                  {ongoingSnapshot.title || 'Pågående snabbpass'}
-                </Text>
-                {ongoingSnapshot.exercises ? (
-                  <Text style={styles.resumeMeta}>
-                    {t('common.resumeMeta', undefined, ongoingSnapshot.exercises.length)}
-                  </Text>
-                ) : null}
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.resumeCTA,
-                  {
-                    borderColor: '#f97316',
-                    backgroundColor: '#23150c',
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push({
-                    pathname: '/workout/quick-workout',
-                    params: {
-                      resume: '1',
-                      resumeSnapshot: encodeURIComponent(JSON.stringify(ongoingSnapshot)),
-                    },
-                  });
-                }}
-                accessibilityLabel="Återuppta pågående snabbpass"
-                accessibilityRole="button"
-              >
-                <Text style={styles.resumeCTAText}>{t('common.resumeButton')}</Text>
-              </TouchableOpacity>
-            </View>
-          </GlassCard>
-        )}
-
         {/* dekorativa glows borttagna för renare layout */}
         {/* Header */}
         <GlassCard style={styles.heroCard} elevated={false}>
-            <View style={styles.heroRow}>
-              <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{t('home.heroTitle')}</Text>
+          <View style={styles.heroRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.title}>Dagens läge ✨</Text>
               <Text style={styles.subtitle}>
-                {t('home.heroSubtitle')}
+                Din personliga träningshub – streaks, dopamin och tydliga actions.
               </Text>
               <View style={styles.heroBadges}>
                 <View style={styles.heroBadge}>
                   <Flame size={14} color={colors.accentPink} />
-                  <Text style={styles.heroBadgeText}>
-                    {t('home.heroStreak', undefined, { days: streak })}
-                  </Text>
+                  <Text style={styles.heroBadgeText}>Streak {streak} dagar</Text>
                 </View>
                 <View style={styles.heroBadge}>
                   <CalendarClock size={14} color={colors.primary} />
                   <Text style={styles.heroBadgeText}>
-                    {t('home.heroGoal', undefined, {
-                      done: workoutsThisWeek.length,
-                      goal: weeklyGoal,
-                    }) || `${workoutsThisWeek.length}/${weeklyGoal} denna vecka`}
+                    {workoutsThisWeek.length}/{weeklyGoal} denna vecka
                   </Text>
                 </View>
               </View>
-              </View>
-              <TouchableOpacity
-                style={styles.heroCTA}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push('/workout/quick-workout');
-                }}
-                activeOpacity={0.9}
-              >
-                <Play size={16} color="#0b1024" />
-                <Text style={styles.heroCTAText}>{t('home.start', 'Starta pass')}</Text>
-              </TouchableOpacity>
             </View>
-          </GlassCard>
+            <TouchableOpacity
+              style={styles.heroCTA}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/workout/quick-workout');
+              }}
+              activeOpacity={0.9}
+            >
+              <Play size={16} color="#0b1024" />
+              <Text style={styles.heroCTAText}>Starta pass</Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
 
         {/* Streak / veckomål */}
         <GlassCard style={styles.streakCard} elevated={false}>
@@ -326,16 +229,16 @@ export default function HomeScreen() {
         {/* DAGENS PASS */}
         <GlassCard style={styles.card} elevated={false}>
           <View style={styles.rowBetween}>
-              <View style={styles.row}>
-                <View style={styles.iconCircle}>
-                  <CalendarClock size={18} color={colors.accentPurple} />
-                </View>
-                <View>
-                <Text style={styles.cardTitle}>{t('home.todayTitle')}</Text>
+            <View style={styles.row}>
+              <View style={styles.iconCircle}>
+                <CalendarClock size={18} color={colors.accentPurple} />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>Dagens schema</Text>
                 <Text style={styles.cardText}>
                   {hasWorkoutToday
-                    ? t('home.todayHas')
-                    : t('home.todayEmpty')}
+                    ? 'Du har minst ett pass idag.'
+                    : 'Ingen plan idag – perfekt läge att skapa något.'}
                 </Text>
               </View>
             </View>
@@ -343,7 +246,7 @@ export default function HomeScreen() {
 
           {hasWorkoutToday ? (
             <View style={styles.todayBox}>
-              <Text style={styles.todayLabel}>{t('home.plannedToday')}</Text>
+              <Text style={styles.todayLabel}>Planerade pass idag</Text>
               {workoutsToday.map((w) => (
                 <View key={w.id} style={styles.todayItem}>
                   <View
@@ -360,19 +263,6 @@ export default function HomeScreen() {
                       </Text>
                     ) : null}
                   </View>
-                  {!w.isCompleted && (
-                    <TouchableOpacity
-                      style={styles.smallStartPill}
-                      onPress={() => {
-                        Haptics.selectionAsync();
-                        startPlannedWorkout(w);
-                      }}
-                      accessibilityLabel={`Starta planerat pass ${w.title}`}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.smallStartText}>Starta</Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
               ))}
 
@@ -384,7 +274,7 @@ export default function HomeScreen() {
                     router.push('/workout/quick-workout');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startNow')}</Text>
+                  <Text style={styles.buttonSmallText}>Starta pass nu</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.buttonSmall, styles.outlineButton]}
@@ -393,15 +283,16 @@ export default function HomeScreen() {
                     router.push('/(tabs)/calendar');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.viewCalendar')}</Text>
+                  <Text style={styles.buttonSmallText}>Visa kalender</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <View style={styles.restBox}>
-              <Text style={styles.restTitle}>{t('home.restTitle')}</Text>
+              <Text style={styles.restTitle}>Vilodag? 😴</Text>
               <Text style={styles.restText}>
-                {t('home.restText')}
+                Du har inget inplanerat pass idag. Vill du lägga till ett snabbt
+                eller planera något framåt?
               </Text>
 
               <View style={styles.todayButtonsRow}>
@@ -412,7 +303,7 @@ export default function HomeScreen() {
                     router.push('/workout/quick-workout');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startNow')}</Text>
+                  <Text style={styles.buttonSmallText}>Starta pass nu</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -427,11 +318,11 @@ export default function HomeScreen() {
                 <ListChecks size={18} color={colors.accentGreen} />
               </View>
               <View>
-                <Text style={styles.cardTitle}>{t('home.weekTitle')}</Text>
+                <Text style={styles.cardTitle}>Pass den här veckan</Text>
                 <Text style={styles.cardText}>
                   {workoutsThisWeek.length > 0
-                    ? t('home.weekSubHas')
-                    : t('home.weekSubEmpty')}
+                    ? 'Snabb överblick över allt du loggat.'
+                    : 'Inga pass loggade den här veckan ännu.'}
                 </Text>
               </View>
             </View>
@@ -451,11 +342,7 @@ export default function HomeScreen() {
                     activeOpacity={0.9}
                     onPress={() => {
                       Haptics.selectionAsync();
-                      if (!w.isCompleted) {
-                        startPlannedWorkout(w);
-                      } else {
-                        router.push(`/workout/${w.id}`);
-                      }
+                      router.push(`/workout/${w.id}`);
                     }}
                   >
                     <View style={styles.weekDateCol}>
@@ -503,7 +390,7 @@ export default function HomeScreen() {
                     router.push('/schedule-workout');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.weekEmptyCTA')}</Text>
+                  <Text style={styles.buttonSmallText}>Planera pass</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -524,7 +411,7 @@ export default function HomeScreen() {
                   <ListChecks size={18} color={colors.accentGreen} />
                 </View>
                 <View>
-                  <Text style={styles.cardTitle}>{t('home.lastTitle')}</Text>
+                  <Text style={styles.cardTitle}>Senaste passet</Text>
                   <Text style={styles.cardText}>
                     {latestWorkout.title} · {latestWorkout.date}
                   </Text>
@@ -597,8 +484,8 @@ export default function HomeScreen() {
                     });
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startAgain')}</Text>
-                </TouchableOpacity>
+                  <Text style={styles.buttonSmallText}>Starta igen</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.buttonSmall, styles.outlineButton]}
                 onPress={() => {
@@ -609,7 +496,7 @@ export default function HomeScreen() {
                   });
                 }}
               >
-                <Text style={styles.buttonSmallText}>{t('home.viewDetails')}</Text>
+                <Text style={styles.buttonSmallText}>Visa detaljer</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -628,9 +515,9 @@ export default function HomeScreen() {
                   <ListChecks size={18} color={colors.accentGreen} />
                 </View>
                 <View>
-                  <Text style={styles.cardTitle}>{t('home.lastEmptyTitle')}</Text>
+                  <Text style={styles.cardTitle}>Inget pass ännu</Text>
                   <Text style={styles.cardText}>
-                    {t('home.lastEmptyText')}
+                    Sparka igång veckan med ett snabbt pass eller planera dagens schema.
                   </Text>
                 </View>
               </View>
@@ -644,11 +531,83 @@ export default function HomeScreen() {
                 }}
               >
                 <Play size={16} color="#0b1024" />
-                <Text style={styles.buttonSmallText}>{t('home.start')}</Text>
+                <Text style={styles.buttonSmallText}>Starta pass</Text>
               </TouchableOpacity>
             </View>
           </GlassCard>
         )}
+
+        {/* Snabb stats + streak */}
+        <View style={styles.rowCards}>
+          <GlassCard style={[styles.miniCard, { flex: 1 }]} elevated={false}>
+            {workouts.length === 0 ? (
+              <>
+                <SkeletonRow width="50%" />
+                <SkeletonRow width="40%" />
+                <SkeletonRow width="60%" />
+              </>
+            ) : (
+              <>
+                <Text style={styles.miniLabel}>Den här veckan</Text>
+                <Text style={styles.miniValue}>{workoutsThisWeek.length}</Text>
+                <Text style={styles.miniHint}>Pass loggade</Text>
+                <View style={styles.miniProgressBg}>
+                  <View
+                    style={[
+                      styles.miniProgressFill,
+                      {
+                        width: `${Math.min(
+                          100,
+                          (workoutsThisWeek.length / Math.max(1, weeklyGoal)) *
+                            100
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.miniGoalText}>
+                  Mål: {weeklyGoal} pass/vecka
+                </Text>
+              </>
+            )}
+          </GlassCard>
+
+          <GlassCard style={[styles.miniCard, { flex: 1 }]} elevated={false}>
+            {workouts.length === 0 ? (
+              <>
+                <SkeletonRow width="50%" />
+                <SkeletonRow width="30%" />
+                <SkeletonRow width="70%" />
+              </>
+            ) : (
+              <>
+                <View style={styles.row}>
+                  <View style={styles.streakIconCircle}>
+                    <Flame
+                      size={18}
+                      color={streak > 0 ? '#f97316' : '#6b7280'}
+                    />
+                  </View>
+                  <View>
+                    <Text style={styles.miniLabel}>Streak</Text>
+                    {streak > 0 ? (
+                      <Text style={styles.miniValue}>{streak}</Text>
+                    ) : (
+                      <Text style={styles.miniValue}>0</Text>
+                    )}
+                  </View>
+                </View>
+                <Text style={styles.miniHint}>
+                  {streak > 0
+                    ? 'Håll streaken vid liv!'
+                    : 'Logga ett pass idag för att starta en streak.'}
+                </Text>
+              </>
+            )}
+          </GlassCard>
+        </View>
+
+       
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -686,53 +645,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0b1024cc',
     borderWidth: 1,
     borderColor: colors.cardBorder,
-  },
-  resumeCard: {
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    backgroundColor: '#0c1024',
-    paddingVertical: 12,
-  },
-  resumeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  resumeIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 999,
-    backgroundColor: '#1b130b',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#f97316',
-  },
-  resumeTitle: {
-    ...typography.bodyBold,
-    color: colors.textMain,
-  },
-  resumeSubtitle: {
-    ...typography.caption,
-    color: colors.textSoft,
-  },
-  resumeMeta: {
-    ...typography.micro,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  resumeCTA: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: '#0b1220',
-  },
-  resumeCTAText: {
-    ...typography.caption,
-    color: '#f97316',
-    fontWeight: '800',
   },
   heroRow: {
     flexDirection: 'row',
@@ -1076,19 +988,6 @@ const styles = StyleSheet.create({
     color: colors.textMain,
     fontWeight: '700',
   },
-  smallStartPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  smallStartText: {
-    ...typography.micro,
-    color: '#0b1120',
-    fontWeight: '800',
-  },
   deleteButton: {
     backgroundColor: '#0f172a',
     borderWidth: 1,
@@ -1113,4 +1012,64 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  rowCards: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  miniCard: {
+    paddingVertical: 10,
+  },
+  miniLabel: {
+    color: colors.textSoft,
+    fontSize: 11,
+  },
+  miniValue: {
+    color: colors.textMain,
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  miniHint: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  miniProgressBg: {
+    width: '100%',
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    marginTop: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#111827',
+  },
+  miniProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.primary,
+  },
+  miniGoalText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  streakIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: '#0b1024',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    marginBottom: 4,
+  },
+
+  quickRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
 });

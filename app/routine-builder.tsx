@@ -3,7 +3,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
-  CheckCircle2,
   Dumbbell,
   Palette,
   PlusCircle,
@@ -19,6 +18,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  SafeAreaView,
 } from 'react-native';
 import GlassCard from '../components/ui/GlassCard';
 import { colors, gradients, typography } from '../constants/theme';
@@ -26,12 +26,15 @@ import { Exercise, Template, useWorkouts } from '../context/WorkoutsContext';
 import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
 import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
+import { useTranslation } from '../context/TranslationContext';
+import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 
 const sanitizeNumeric = (value: string) =>
   value.replace(/[^0-9.,-]/g, '').replace(',', '.');
 const sanitizeReps = (value: string) =>
   value.replace(/[^0-9xX/–-]/g, '').replace(/--+/g, '-');
-const normalizeMuscleGroup = (group: string) => group || 'Övrigt';
+const normalizeMuscleGroup = (group: string, translate?: (key: string) => string) =>
+  group || translate?.('exercises.groups.Övrigt') || 'Övrigt';
 const MUSCLE_GROUPS = ['Bröst', 'Rygg', 'Ben', 'Axlar', 'Armar', 'Övrigt'];
 const buildInitialPerformedSets = (sets: number, reps: string, weight: number) =>
   Array.from(
@@ -42,6 +45,69 @@ const buildInitialPerformedSets = (sets: number, reps: string, weight: number) =
       done: false,
     })
   );
+
+const COLOR_OPTIONS = [
+  '#3b82f6', // blå
+  '#22c55e', // grön
+  '#f97316', // orange
+  '#e11d48', // röd/rosa
+  '#a855f7', // lila
+];
+
+export default function RoutineBuilderScreen() {
+  const router = useRouter();
+  const { addTemplate, customExercises } = useWorkouts();
+  const { t } = useTranslation();
+
+  // Card 1 – rutininfo
+  const [title, setTitle] = useState('');
+  const [notes, setNotes] = useState('');
+  const [color, setColor] = useState<string>('#3b82f6');
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [weightError, setWeightError] = useState('');
+
+  // Card 2 – övningar
+  const [showExerciseList, setShowExerciseList] = useState(false);
+  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
+  const [customName, setCustomName] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // När man trycker "Klar" för att gå till set/reps/vikt-läget
+  const [showDetails, setShowDetails] = useState(false);
+
+  const mergedLibrary = useMemo(() => {
+    const base = EXERCISE_LIBRARY.map((g) => ({ ...g, exercises: [...g.exercises] }));
+    (customExercises || []).forEach((ex) => {
+      const found = base.find((g) => g.group === ex.muscleGroup);
+      if (found) {
+        found.exercises.push({ name: ex.name, imageUri: ex.imageUri });
+      } else {
+        base.push({ group: ex.muscleGroup, exercises: [{ name: ex.name, imageUri: ex.imageUri }] });
+      }
+    });
+    return base;
+  }, [customExercises]);
+
+  const toggleExerciseFromLibrary = (name: string) => {
+    const exists = selectedExercises.find((e) => e.name === name);
+    if (exists) {
+      setSelectedExercises((prev) => prev.filter((e) => e.name !== name));
+    } else {
+      const groupEntry = mergedLibrary.find((g) =>
+        g.exercises.some((ex) => ex.name === name)
+      );
+      const newExercise: Exercise = {
+        id: Date.now().toString() + name,
+        name,
+        sets: 3,
+        reps: '10',
+        weight: 0,
+        muscleGroup: normalizeMuscleGroup(groupEntry?.group || t('exercises.groups.Övrigt', 'Övrigt'), t),
+      };
+      setSelectedExercises((prev) => [...prev, newExercise]);
+    }
+  };
 
   const updateSetField = (
     id: string,
@@ -120,76 +186,11 @@ const buildInitialPerformedSets = (sets: number, reps: string, weight: number) =
     );
   };
 
-// Fördefinierade övningar – grupperade
-import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
-
-const COLOR_OPTIONS = [
-  '#3b82f6', // blå
-  '#22c55e', // grön
-  '#f97316', // orange
-  '#e11d48', // röd/rosa
-  '#a855f7', // lila
-];
-
-export default function RoutineBuilderScreen() {
-  const router = useRouter();
-  const { addTemplate, customExercises } = useWorkouts();
-
-  // Card 1 – rutininfo
-  const [title, setTitle] = useState('');
-  const [notes, setNotes] = useState('');
-  const [color, setColor] = useState<string>('#3b82f6');
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [formError, setFormError] = useState('');
-  const [weightError, setWeightError] = useState('');
-
-  // Card 2 – övningar
-  const [showExerciseList, setShowExerciseList] = useState(false);
-  const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
-  const [customName, setCustomName] = useState('');
-  const [showCustomInput, setShowCustomInput] = useState(false);
-
-  // När man trycker "Klar" för att gå till set/reps/vikt-läget
-  const [showDetails, setShowDetails] = useState(false);
-
-  const mergedLibrary = useMemo(() => {
-    const base = EXERCISE_LIBRARY.map((g) => ({ ...g, exercises: [...g.exercises] }));
-    (customExercises || []).forEach((ex) => {
-      const found = base.find((g) => g.group === ex.muscleGroup);
-      if (found) {
-        found.exercises.push({ name: ex.name, imageUri: ex.imageUri });
-      } else {
-        base.push({ group: ex.muscleGroup, exercises: [{ name: ex.name, imageUri: ex.imageUri }] });
-      }
-    });
-    return base;
-  }, [customExercises]);
-
-  const toggleExerciseFromLibrary = (name: string) => {
-    const exists = selectedExercises.find((e) => e.name === name);
-    if (exists) {
-      setSelectedExercises((prev) => prev.filter((e) => e.name !== name));
-    } else {
-      const groupEntry = mergedLibrary.find((g) =>
-        g.exercises.some((ex) => ex.name === name)
-      );
-      const newExercise: Exercise = {
-        id: Date.now().toString() + name,
-        name,
-        sets: 3,
-        reps: '10',
-        weight: 0,
-        muscleGroup: normalizeMuscleGroup(groupEntry?.group || 'Övrigt'),
-      };
-      setSelectedExercises((prev) => [...prev, newExercise]);
-    }
-  };
-
   const handleAddCustomExercise = () => {
     Haptics.selectionAsync();
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert('Fel', 'Ange ett namn på din övning.');
+      Alert.alert(t('routineBuilder.errors.generic'), t('routineBuilder.errors.nameRequired'));
       return;
     }
 
@@ -214,7 +215,10 @@ export default function RoutineBuilderScreen() {
   const handleConfirmExercises = () => {
     Haptics.selectionAsync();
     if (selectedExercises.length === 0) {
-      Alert.alert('Inga övningar', 'Lägg till minst en övning först.');
+      Alert.alert(
+        t('routineBuilder.errors.generic'),
+        t('routineBuilder.errors.noExercises')
+      );
       return;
     }
     setShowDetails(true);
@@ -235,7 +239,7 @@ export default function RoutineBuilderScreen() {
       if (cleaned.trim() === '') return 0;
       const num = parseFloat(cleaned);
       if (Number.isNaN(num) || num < 0) {
-        setWeightError('Vikt och set måste vara 0 eller större.');
+        setWeightError(t('routineBuilder.errors.weightNonNegative'));
         return prevVal;
       }
       return num;
@@ -265,12 +269,18 @@ export default function RoutineBuilderScreen() {
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
-      Alert.alert('Fel', 'Rutinen måste ha ett namn.');
+      Alert.alert(
+        t('routineBuilder.errors.generic'),
+        t('routineBuilder.errors.routineName')
+      );
       return;
     }
 
     if (selectedExercises.length === 0) {
-      Alert.alert('Inga övningar', 'Lägg till minst en övning i rutinen.');
+      Alert.alert(
+        t('routineBuilder.errors.generic'),
+        t('routineBuilder.errors.routineExercises')
+      );
       return;
     }
 
@@ -278,7 +288,7 @@ export default function RoutineBuilderScreen() {
       (ex) => ex.sets < 0 || ex.weight < 0 || !ex.name.trim()
     );
     if (invalidExercise) {
-      setFormError('Kolla så att varje övning har namn och icke-negativa värden.');
+      setFormError(t('routineBuilder.errors.invalidValues'));
       return;
     }
 
@@ -298,41 +308,42 @@ export default function RoutineBuilderScreen() {
 
     addTemplate(template);
 
-    toast('Rutin sparad');
-    Alert.alert('Sparat', 'Din rutin har sparats.', [
+    toast(t('routineBuilder.saveToast'));
+    Alert.alert(t('routineBuilder.saveAlertTitle'), t('routineBuilder.saveAlertBody'), [
       {
-        text: 'OK',
+        text: t('routineBuilder.saveOk'),
         onPress: () => router.replace('/(tabs)/add-workout'),
       },
     ]);
   };
 
   return (
-    <LinearGradient
-      colors={gradients.appBackground}
-      style={styles.full}
-    >
-      <KeyboardAvoidingView
+    <SafeAreaView style={styles.safe}>
+      <LinearGradient
+        colors={gradients.appBackground}
         style={styles.full}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView
-          style={styles.container}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          style={styles.full}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Text style={styles.title}>Skapa rutin</Text>
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            showsVerticalScrollIndicator={false}
+          >
+          <Text style={styles.title}>{t('routineBuilder.title')}</Text>
           <Text style={styles.subtitle}>
-            Bygg ett återanvändbart pass med en färg och övningar du älskar.
+            {t('routineBuilder.subtitle')}
           </Text>
 
           {/* CARD 1 – RUTININFO */}
           <GlassCard style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>Rutininfo</Text>
+                <Text style={styles.cardTitle}>{t('routineBuilder.infoTitle')}</Text>
                 <Text style={styles.cardText}>
-                  Namnge din rutin och välj en färg som representerar passet.
+                  {t('routineBuilder.infoDesc')}
                 </Text>
               </View>
 
@@ -343,7 +354,7 @@ export default function RoutineBuilderScreen() {
                   setShowColorPicker((prev) => !prev);
                 }}
                 activeOpacity={0.8}
-                accessibilityLabel="Välj färg för rutin"
+                accessibilityLabel={t('routineBuilder.colorLabel')}
                 accessibilityRole="button"
               >
                 <View
@@ -373,7 +384,7 @@ export default function RoutineBuilderScreen() {
                     { backgroundColor: c },
                     c === color && styles.colorOptionActive,
                   ]}
-                  accessibilityLabel={`Välj färg ${c}`}
+                  accessibilityLabel={`${t('routineBuilder.colorLabel')} ${c}`}
                   accessibilityRole="button"
                 />
               ))}
@@ -381,28 +392,28 @@ export default function RoutineBuilderScreen() {
           )}
 
             {/* Namn */}
-            <Text style={styles.label}>Namn</Text>
+            <Text style={styles.label}>{t('common.name', t('routineBuilder.infoTitle'))}</Text>
             <TextInput
               value={title}
               onChangeText={setTitle}
               style={styles.input}
-              placeholder="Ex. Push, Ben, Helkropp"
-              placeholderTextColor="#64748b"
+              placeholder={t('routineBuilder.namePlaceholder')}
+              placeholderTextColor={colors.textSoft}
             />
 
             {/* Anteckningar */}
-            <Text style={[styles.label, { marginTop: 10 }]}>Anteckningar</Text>
+            <Text style={[styles.label, { marginTop: 10 }]}>{t('common.notes', 'Anteckningar')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
               style={[styles.input, styles.notesInput]}
-              placeholder="Ex. fokus, tempo, känsla..."
-              placeholderTextColor="#64748b"
+              placeholder={t('routineBuilder.notesPlaceholder')}
+              placeholderTextColor={colors.textSoft}
               multiline
             />
           </GlassCard>
 
-          {/* CARD 2 – VÄLJ ÖVNINGAR */}
+            {/* CARD 2 – VÄLJ ÖVNINGAR */}
           <GlassCard style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderLeft}>
@@ -410,15 +421,15 @@ export default function RoutineBuilderScreen() {
                   <Dumbbell size={18} color={colors.accentBlue} />
                 </View>
                 <View>
-                  <Text style={styles.cardTitle}>Välj övningar</Text>
+                  <Text style={styles.cardTitle}>{t('routineBuilder.exercisesTitle')}</Text>
                   <Text style={styles.cardText}>
-                    Lägg till övningar i rutinen – från listan eller egna.
+                    {t('routineBuilder.exercisesDesc')}
                   </Text>
                 </View>
               </View>
             </View>
 
-            {/* RAD: + Välj övning / + Egen övning */}
+            {/* RAD: + {t('routineBuilder.libraryButton')} / + {t('routineBuilder.customButton')} */}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={[styles.actionChip, styles.actionChipPrimary]}
@@ -426,11 +437,11 @@ export default function RoutineBuilderScreen() {
                   Haptics.selectionAsync();
                   setShowExerciseList((prev) => !prev);
                 }}
-                accessibilityLabel="Öppna övningsbibliotek"
+                accessibilityLabel={t('routineBuilder.libraryButton')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>Välj övning</Text>
+                <Text style={styles.actionChipTextPrimary}>{t('routineBuilder.libraryButton')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -439,24 +450,24 @@ export default function RoutineBuilderScreen() {
                   Haptics.selectionAsync();
                   setShowCustomInput((prev) => !prev);
                 }}
-                accessibilityLabel="Lägg till egen övning"
+                accessibilityLabel={t('routineBuilder.customButton')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>Egen övning</Text>
+                <Text style={styles.actionChipTextSecondary}>{t('routineBuilder.customButton')}</Text>
               </TouchableOpacity>
             </View>
 
             {/* EGEN ÖVNING INPUT */}
             {showCustomInput && (
               <View style={styles.customExerciseBox}>
-                <Text style={styles.label}>Namn på egen övning</Text>
+                <Text style={styles.label}>{t('routineBuilder.customLabel')}</Text>
                 <TextInput
                   value={customName}
                   onChangeText={setCustomName}
                   style={styles.input}
-                  placeholder="Ex. Bulgarian split squats"
-                  placeholderTextColor="#64748b"
+                  placeholder={t('routineBuilder.customPlaceholder')}
+                  placeholderTextColor={colors.textSoft}
                 />
                 <View style={styles.muscleRow}>
                   {MUSCLE_GROUPS.map((mg) => {
@@ -478,15 +489,15 @@ export default function RoutineBuilderScreen() {
                               sets: 3,
                               reps: '10',
                               weight: 0,
-                              muscleGroup: mg,
-                            },
-                          ]);
-                          setCustomName('');
-                          setShowCustomInput(false);
-                        }}
-                        accessibilityLabel={`Välj muskelgrupp ${mg}`}
+                             muscleGroup: mg,
+                           },
+                         ]);
+                         setCustomName('');
+                         setShowCustomInput(false);
+                       }}
+                        accessibilityLabel={t('routineBuilder.selectMuscle', `Välj muskelgrupp ${mg}`, mg)}
                         accessibilityRole="button"
-                      >
+                     >
                         <Text
                           style={[
                             styles.muscleChipText,
@@ -503,7 +514,7 @@ export default function RoutineBuilderScreen() {
                   style={[styles.button, styles.secondaryButton]}
                   onPress={handleAddCustomExercise}
                 >
-                  <Text style={styles.buttonText}>Lägg till övning</Text>
+                  <Text style={styles.buttonText}>{t('routineBuilder.addCustom')}</Text>
                 </TouchableOpacity>
                 {weightError ? (
                   <Text style={[styles.sectionLabel, { color: '#fca5a5' }]}>
@@ -540,10 +551,10 @@ export default function RoutineBuilderScreen() {
 
             {/* VALDA ÖVNINGAR (namnlista) */}
             <View style={styles.selectedBox}>
-              <Text style={styles.sectionLabel}>Valda övningar</Text>
+              <Text style={styles.sectionLabel}>{t('routineBuilder.selectedLabel')}</Text>
               {selectedExercises.length === 0 ? (
                 <Text style={styles.emptyText}>
-                  Inga övningar ännu. Välj från listan eller lägg till en egen.
+                  {t('routineBuilder.selectedEmpty')}
                 </Text>
               ) : (
                 selectedExercises.map((ex) => (
@@ -555,7 +566,7 @@ export default function RoutineBuilderScreen() {
                     <TouchableOpacity
                       onPress={() => handleRemoveExercise(ex.id)}
                     >
-                      <Text style={styles.removeText}>Ta bort</Text>
+                      <Text style={styles.removeText}>{t('routineBuilder.remove')}</Text>
                     </TouchableOpacity>
                   </View>
                 ))
@@ -568,7 +579,7 @@ export default function RoutineBuilderScreen() {
                 style={[styles.button, styles.confirmButton]}
                 onPress={handleConfirmExercises}
               >
-                <Text style={styles.buttonText}>Klar med val av övningar</Text>
+                <Text style={styles.buttonText}>{t('routineBuilder.confirmExercises')}</Text>
               </TouchableOpacity>
             )}
           </GlassCard>
@@ -576,9 +587,9 @@ export default function RoutineBuilderScreen() {
           {/* DETALJKORT – SETS / REPS / VIKT */}
           {showDetails && selectedExercises.length > 0 && (
             <GlassCard style={styles.card}>
-              <Text style={styles.cardTitle}>Detaljer för övningar</Text>
+              <Text style={styles.cardTitle}>{t('routineBuilder.detailsTitle', 'Detaljer för övningar')}</Text>
               <Text style={styles.cardText}>
-                Fyll i reps och vikt per set. Lägg till fler set vid behov.
+                {t('routineBuilder.detailsSubtitle', 'Fyll i reps och vikt per set. Lägg till fler set vid behov.')}
               </Text>
 
               {selectedExercises.map((ex) => {
@@ -624,15 +635,20 @@ export default function RoutineBuilderScreen() {
             style={[styles.button, styles.saveButton]}
             onPress={handleSaveRoutine}
           >
-            <Text style={styles.buttonText}>Spara rutin</Text>
+            <Text style={styles.buttonText}>{t('routineBuilder.saveButton', 'Save routine')}</Text>
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   full: {
     flex: 1,
   },

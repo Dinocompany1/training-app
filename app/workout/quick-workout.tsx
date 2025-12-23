@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { CheckCircle2, Clock, Dumbbell, ListChecks, Palette, PlusCircle, X } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   Modal,
@@ -22,7 +22,13 @@ import NeonButton from '../../components/ui/NeonButton';
 import { EXERCISE_LIBRARY } from '../../constants/exerciseLibrary';
 import { colors, gradients, typography } from '../../constants/theme';
 import { Template, useWorkouts } from '../../context/WorkoutsContext';
+import {
+  clearOngoingQuickWorkout,
+  loadOngoingQuickWorkout,
+  saveOngoingQuickWorkout,
+} from '../../utils/ongoingQuickWorkout';
 import { toast } from '../../utils/toast';
+import { useTranslation } from '../../context/TranslationContext';
 
 type QuickSet = {
   id: string;
@@ -38,7 +44,14 @@ type QuickExercise = {
   sets: QuickSet[];
 };
 
-const MUSCLE_GROUPS = ['Bröst', 'Rygg', 'Ben', 'Axlar', 'Armar', 'Övrigt'];
+const MUSCLE_GROUPS = [
+  'Bröst',
+  'Rygg',
+  'Ben',
+  'Axlar',
+  'Armar',
+  'Övrigt',
+];
 const COLOR_OPTIONS = ['#a855f7', '#3b82f6', '#22c55e', '#f97316', '#e11d48'];
 
 // Enkel id-generator (ingen uuid / crypto)
@@ -55,7 +68,7 @@ const parseWeightInput = (value: string) => {
 };
 const normalizeMuscleGroup = (value?: string) => {
   const trimmed = (value || '').trim();
-  return trimmed.length > 0 ? trimmed : 'Övrigt';
+  return trimmed.length > 0 ? trimmed : t('exercises.groups.Övrigt', 'Övrigt');
 };
 
 const todayString = () => {
@@ -66,7 +79,40 @@ const todayString = () => {
   return `${y}-${m}-${day}`;
 };
 
-const buildExercisesFromTemplate = (params: { templateId?: string }, templates: Template[]) => {
+const buildExercisesFromTemplate = (
+  params: { templateId?: string },
+  templates: Template[],
+  plannedExercises?: {
+    id?: string;
+    name: string;
+    sets: number;
+    reps: string;
+    weight: number;
+    muscleGroup?: string;
+    performedSets?: { reps: string; weight: number }[];
+  }[]
+) => {
+  if (plannedExercises && plannedExercises.length > 0) {
+    return plannedExercises.map<QuickExercise>((ex) => ({
+      id: generateId(),
+      name: ex.name ?? 'Övning',
+      muscleGroup: ex.muscleGroup || 'Övrigt',
+      sets: Array.from({ length: ex.sets ?? 1 }).map((_, idx) => {
+        const performed = ex.performedSets?.[idx];
+        return {
+          id: generateId(),
+          reps: performed?.reps ?? ex.reps ?? '8–10',
+          weight:
+            performed && performed.weight != null
+              ? String(performed.weight)
+              : ex.weight != null && !Number.isNaN(Number(ex.weight))
+              ? String(ex.weight)
+              : '',
+        };
+      }),
+    }));
+  }
+
   if (params.templateId && Array.isArray(templates)) {
     const template = templates.find((t) => t.id === params.templateId);
     if (template && Array.isArray(template.exercises)) {
@@ -104,29 +150,60 @@ const useWorkoutTimer = (startTimestamp: number) => {
 
 export default function QuickWorkoutScreen() {
   const router = useRouter();
-  const { addWorkout, addTemplate, templates, customExercises } = useWorkouts();
-  const params = useLocalSearchParams<{ title?: string; color?: string; templateId?: string }>();
+  const { t } = useTranslation();
+  const { addWorkout, updateWorkout, addTemplate, templates, customExercises, workouts } =
+    useWorkouts();
+  const params = useLocalSearchParams<{
+    title?: string;
+    color?: string;
+    templateId?: string;
+    plannedId?: string;
+    resume?: string;
+    resumeSnapshot?: string;
+  }>();
+
+  const parsedResume = useMemo(() => {
+    if (!params.resumeSnapshot || typeof params.resumeSnapshot !== 'string') return null;
+    try {
+      return JSON.parse(decodeURIComponent(params.resumeSnapshot));
+    } catch {
+      return null;
+    }
+  }, [params.resumeSnapshot]);
+
+  const resolvedPlannedWorkout = useMemo(() => {
+    if (!params.plannedId) return undefined;
+    return workouts.find((w) => w.id === params.plannedId);
+  }, [params.plannedId, workouts]);
 
   const resolvedTemplate = useMemo(() => {
     if (!params.templateId || !Array.isArray(templates)) return undefined;
     return templates.find((t) => t.id === params.templateId);
   }, [params.templateId, templates]);
 
-  const defaultColor =
+const defaultColor =
     (params.color && typeof params.color === 'string' && params.color) ||
     resolvedTemplate?.color ||
+    resolvedPlannedWorkout?.color ||
     '#a855f7';
 
-  const defaultTitle =
+const defaultTitle =
     (params.title && typeof params.title === 'string' && params.title) ||
     resolvedTemplate?.name ||
-    (params.templateId ? 'Rutinpass' : 'Snabbpass');
+    resolvedPlannedWorkout?.title ||
+    (params.templateId ? t('quick.templateTitleDefault') : t('quick.quickTitleDefault'));
 
-  const [title, setTitle] = useState<string>(defaultTitle);
-  const [color, setColor] = useState<string>(defaultColor);
-  const [templateColor, setTemplateColor] = useState<string>(defaultColor);
+  const [startTimestamp, setStartTimestamp] = useState<number>(
+    parsedResume?.startTimestamp || Date.now()
+  );
+  const [title, setTitle] = useState<string>(parsedResume?.title || defaultTitle);
+  const [color, setColor] = useState<string>(parsedResume?.color || defaultColor);
+  const [templateColor, setTemplateColor] = useState<string>(parsedResume?.color || defaultColor);
+  const [exercises, setExercises] = useState<QuickExercise[]>(() => {
+    if (parsedResume?.exercises) return parsedResume.exercises;
+    return buildExercisesFromTemplate(params, templates, resolvedPlannedWorkout?.exercises as any);
+  });
 
-  const [startTimestamp] = useState<number>(Date.now());
   const elapsedSeconds = useWorkoutTimer(startTimestamp);
   const formattedTime = useMemo(() => {
     const mins = Math.floor(elapsedSeconds / 60);
@@ -146,7 +223,9 @@ export default function QuickWorkoutScreen() {
   const [customName, setCustomName] = useState('');
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState<boolean>(
+    parsedResume?.showDetails ?? !!params.resume
+  );
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [lastWorkoutExercises, setLastWorkoutExercises] = useState<
     {
@@ -160,9 +239,36 @@ export default function QuickWorkoutScreen() {
     }[]
   >([]);
 
-  const [exercises, setExercises] = useState<QuickExercise[]>(() =>
-    buildExercisesFromTemplate(params, templates)
-  );
+  // Spara pågående pass för återupptagning
+  useEffect(() => {
+    const snapshot = {
+      title,
+      color,
+      notes,
+      exercises,
+      showDetails,
+      templateId: params.templateId,
+      plannedId: params.plannedId,
+      startTimestamp,
+    };
+    saveOngoingQuickWorkout(snapshot);
+  }, [title, color, notes, exercises, showDetails, params.templateId, params.plannedId, startTimestamp]);
+
+  // Ladda ev. pågående sparat pass
+  useEffect(() => {
+    const loadOngoing = async () => {
+      if (!params.resume && (params.templateId || params.plannedId)) return; // prioriterar inkommande param om inte resume-flaggan finns
+      const parsed = await loadOngoingQuickWorkout();
+      if (!parsed?.exercises) return;
+      if (parsed.startTimestamp) setStartTimestamp(parsed.startTimestamp);
+      setTitle(parsed.title || defaultTitle);
+      setColor(parsed.color || defaultColor);
+      setNotes(parsed.notes || '');
+      setExercises(parsed.exercises || []);
+      setShowDetails(parsed.showDetails ?? true);
+    };
+    loadOngoing();
+  }, [params.plannedId, params.templateId, params.resume, defaultTitle, defaultColor]);
 
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({ ...g, exercises: [...g.exercises] }));
@@ -237,8 +343,8 @@ export default function QuickWorkoutScreen() {
       ...prev,
       {
         id: generateId(),
-        name: `Ny övning ${prev.length + 1}`,
-        muscleGroup: 'Övrigt',
+        name: t('quick.newExercise', prev.length + 1),
+        muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
         sets: [{ id: generateId(), reps: '10', weight: '' }],
       },
     ]);
@@ -267,7 +373,7 @@ export default function QuickWorkoutScreen() {
         {
           id: generateId(),
           name,
-          muscleGroup: normalizeMuscleGroup(group || 'Övrigt'),
+          muscleGroup: normalizeMuscleGroup(group || t('exercises.groups.Övrigt', 'Övrigt')),
           sets: [{ id: generateId(), reps: '10', weight: '', done: false }],
         },
       ];
@@ -277,10 +383,10 @@ export default function QuickWorkoutScreen() {
   const handleAddCustomExercise = () => {
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert('Fel', 'Ange ett namn på övningen.');
+      Alert.alert(t('common.error'), t('quick.customNameError'));
       return;
     }
-    addExerciseFromName(trimmed, 'Övrigt');
+    addExerciseFromName(trimmed, t('exercises.groups.Övrigt', 'Övrigt'));
     setCustomName('');
     setShowCustomInput(false);
     Haptics.selectionAsync();
@@ -305,31 +411,31 @@ export default function QuickWorkoutScreen() {
 
   const handleFinish = () => {
     Haptics.selectionAsync();
-    const hasInvalidWeight = exercises.some((ex) =>
-      ex.sets.some((s) => Number.isNaN(parseWeightInput(s.weight)))
-    );
-    if (hasInvalidWeight) {
-      setInputError('Vikt måste vara siffror (använd punkt eller komma).');
+   const hasInvalidWeight = exercises.some((ex) =>
+     ex.sets.some((s) => Number.isNaN(parseWeightInput(s.weight)))
+   );
+   if (hasInvalidWeight) {
+      setInputError(t('quick.weightInvalid'));
       return;
     }
     setInputError('');
 
-    Alert.alert('Avsluta pass', 'Vill du spara passet?', [
-      { text: 'Fortsätt träna', style: 'cancel' },
-      { text: 'Ja, spara', style: 'default', onPress: saveWorkout },
+    Alert.alert(t('quick.finishConfirm'), t('quick.finishQuestion'), [
+      { text: t('quick.finishContinue'), style: 'cancel' },
+      { text: t('quick.finishSave'), style: 'default', onPress: saveWorkout },
     ]);
   };
 
   const saveWorkout = () => {
     if (!title.trim()) {
-      Alert.alert('Fel', 'Passet måste ha en titel.');
+      Alert.alert(t('common.error'), t('quick.titleError'));
       return;
     }
     const hasInvalidWeight = exercises.some((ex) =>
       ex.sets.some((s) => Number.isNaN(parseWeightInput(s.weight)))
     );
     if (hasInvalidWeight) {
-      Alert.alert('Fel', 'Vikt måste vara siffror (använd punkt eller komma).');
+      Alert.alert(t('common.error'), t('quick.weightInvalid'));
       return;
     }
 
@@ -356,8 +462,13 @@ export default function QuickWorkoutScreen() {
 
     setLastWorkoutExercises(workoutExercises);
 
+    const plannedId =
+      params.plannedId && typeof params.plannedId === 'string'
+        ? params.plannedId
+        : undefined;
+
     const workout = {
-      id: generateId(),
+      id: plannedId || generateId(),
       title,
       date: todayString(),
       notes: notes.trim(),
@@ -366,17 +477,24 @@ export default function QuickWorkoutScreen() {
       exercises: workoutExercises,
       isCompleted: true,
       sourceTemplateId:
-        params.templateId && typeof params.templateId === 'string' ? params.templateId : undefined,
+        params.templateId && typeof params.templateId === 'string'
+          ? params.templateId
+          : undefined,
     };
 
-    addWorkout(workout);
+    if (plannedId && workouts.some((w) => w.id === plannedId)) {
+      updateWorkout(workout);
+    } else {
+      addWorkout(workout);
+    }
+    clearOngoingQuickWorkout();
 
     Alert.alert(
-      'Snyggt jobbat! 💪',
-      `Du genomförde ${workoutExercises.length} övningar och ${totalSets} set på ungefär ${durationMinutes} min.`,
+      t('quick.finishCongratsTitle'),
+      t('quick.finishCongratsBody', { exercises: workoutExercises.length, sets: totalSets, minutes: durationMinutes }),
       [
         {
-          text: 'Spara som rutin',
+          text: t('quick.saveTemplate'),
           onPress: () => {
             setTemplateName(title);
             setTemplateColor(color);
@@ -384,7 +502,7 @@ export default function QuickWorkoutScreen() {
           },
         },
         {
-          text: 'Till hem',
+          text: t('quick.toHome'),
           onPress: () => router.replace('/'),
         },
       ]
@@ -392,12 +510,15 @@ export default function QuickWorkoutScreen() {
   };
 
   const handleCancel = () => {
-    Alert.alert('Avbryt pass', 'Vill du verkligen avbryta passet? Ingenting sparas.', [
-      { text: 'Fortsätt träna', style: 'cancel' },
+    Alert.alert(t('quick.cancelTitle'), t('quick.cancelBody'), [
+      { text: t('quick.cancelContinue'), style: 'cancel' },
       {
-        text: 'Avbryt pass',
+        text: t('quick.cancelConfirm'),
         style: 'destructive',
-        onPress: () => router.back(),
+        onPress: () => {
+          clearOngoingQuickWorkout();
+          router.back();
+        },
       },
     ]);
   };
@@ -441,9 +562,9 @@ export default function QuickWorkoutScreen() {
 
     addTemplate(template);
     setTemplateModalVisible(false);
-    toast('Sparad som rutin');
-    Alert.alert('Sparad rutin', 'Passet sparades som rutin.', [
-      { text: 'OK', onPress: () => router.replace('/') },
+    toast(t('quick.templateSavedToast'));
+    Alert.alert(t('quick.templateSavedTitle'), t('quick.templateSavedBody'), [
+      { text: t('common.ok'), onPress: () => router.replace('/') },
     ]);
   };
 
@@ -458,20 +579,20 @@ export default function QuickWorkoutScreen() {
         >
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Spara som rutin</Text>
-              <Text style={styles.modalSub}>Justera namn och färg innan du sparar.</Text>
+              <Text style={styles.modalTitle}>{t('quick.saveTemplate')}</Text>
+              <Text style={styles.modalSub}>{t('quick.saveTemplateSub')}</Text>
               <TextInput
                 style={styles.modalInput}
                 value={templateName}
                 onChangeText={setTemplateName}
-                placeholder="Namn på rutin"
+                placeholder={t('quick.templateNamePlaceholder')}
                 placeholderTextColor={colors.textSoft}
               />
               <TextInput
                 style={styles.modalInput}
                 value={templateColor}
                 onChangeText={setTemplateColor}
-                placeholder="Färg (hex, t.ex. #a855f7)"
+                placeholder={t('quick.templateColorPlaceholder')}
                 placeholderTextColor={colors.textSoft}
               />
               <View style={styles.colorRow}>
@@ -492,13 +613,13 @@ export default function QuickWorkoutScreen() {
                   style={[styles.modalButton, styles.modalCancel]}
                   onPress={() => setTemplateModalVisible(false)}
                 >
-                  <Text style={styles.modalCancelText}>Avbryt</Text>
+                  <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalSave]}
                   onPress={handleSaveTemplate}
                 >
-                  <Text style={styles.modalSaveText}>Spara</Text>
+                  <Text style={styles.modalSaveText}>{t('common.save')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -515,7 +636,7 @@ export default function QuickWorkoutScreen() {
               <View style={[styles.colorDot, { backgroundColor: color }]} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.title}>{title}</Text>
-                <Text style={styles.subtitle}>Pågående pass</Text>
+                <Text style={styles.subtitle}>{t('quick.ongoing')}</Text>
               </View>
             </View>
 
@@ -553,8 +674,8 @@ export default function QuickWorkoutScreen() {
           <GlassCard style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>Passinfo</Text>
-                <Text style={styles.cardText}>Namnge ditt spontanpass och lägg till anteckningar.</Text>
+                <Text style={styles.cardTitle}>{t('quick.passInfo')}</Text>
+                <Text style={styles.cardText}>{t('quick.passInfoSub')}</Text>
               </View>
               <TouchableOpacity
                 onPress={() => {
@@ -583,7 +704,7 @@ export default function QuickWorkoutScreen() {
                       { backgroundColor: c },
                       c === color && styles.colorOptionActive,
                     ]}
-                    accessibilityLabel={`Välj färg ${c}`}
+                    accessibilityLabel={`${t('quick.colorLabel')} ${c}`}
                     accessibilityRole="button"
                   />
                 ))}
@@ -593,7 +714,7 @@ export default function QuickWorkoutScreen() {
               style={[styles.input, { marginTop: 8 }]}
               value={title}
               onChangeText={setTitle}
-              placeholder="Titel för passet"
+              placeholder={t('quick.titlePlaceholder')}
               placeholderTextColor={colors.textSoft}
             />
             <TextInput
@@ -601,14 +722,14 @@ export default function QuickWorkoutScreen() {
               value={notes}
               onChangeText={(t) => {
                 if (t.length > 220) {
-                  setNotesError('Max 220 tecken i anteckningar.');
+                  setNotesError(t('quick.notesMax'));
                   setNotes(t.slice(0, 220));
                 } else {
                   setNotesError('');
                   setNotes(t);
                 }
               }}
-              placeholder="Anteckningar (valfritt)"
+              placeholder={t('quick.notesPlaceholder')}
               placeholderTextColor={colors.textSoft}
               multiline
               maxLength={220}
@@ -623,9 +744,9 @@ export default function QuickWorkoutScreen() {
                   <Dumbbell size={18} color={colors.accentBlue} />
                 </View>
                 <View>
-                  <Text style={styles.cardTitle}>Välj övningar</Text>
+                  <Text style={styles.cardTitle}>{t('quick.chooseExercises')}</Text>
                   <Text style={styles.cardText}>
-                    Lägg till övningar från listan eller egna innan du fyller set.
+                    {t('quick.chooseExercisesSub')}
                   </Text>
                 </View>
               </View>
@@ -644,7 +765,7 @@ export default function QuickWorkoutScreen() {
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>Välj övning</Text>
+                <Text style={styles.actionChipTextPrimary}>{t('quick.chooseExercise')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -659,7 +780,7 @@ export default function QuickWorkoutScreen() {
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>Egen övning</Text>
+                <Text style={styles.actionChipTextSecondary}>{t('quick.customExercise')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -674,18 +795,18 @@ export default function QuickWorkoutScreen() {
                 accessibilityRole="button"
               >
                 <ListChecks size={14} color="#0b1120" />
-                <Text style={styles.actionChipTextTertiary}>Rutiner</Text>
+                <Text style={styles.actionChipTextTertiary}>{t('quick.routines')}</Text>
               </TouchableOpacity>
             </View>
 
             {showCustomInput && (
               <View style={styles.customExerciseBox}>
-                <Text style={styles.customLabel}>Namn på egen övning</Text>
+                <Text style={styles.customLabel}>{t('quick.customLabel')}</Text>
                 <TextInput
                   value={customName}
                   onChangeText={setCustomName}
                   style={styles.input}
-                  placeholder="Ex. Bulgarian split squats"
+                  placeholder={t('quick.customPlaceholder')}
                   placeholderTextColor={colors.textSoft}
                 />
                 <TouchableOpacity
@@ -693,7 +814,7 @@ export default function QuickWorkoutScreen() {
                   onPress={handleAddCustomExercise}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.buttonText}>Lägg till</Text>
+                  <Text style={styles.buttonText}>{t('quick.addCustomCta')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -721,13 +842,13 @@ export default function QuickWorkoutScreen() {
             {showTemplatePicker && (
               <View style={styles.templateLibrary}>
                 <Text style={styles.sectionLabel}>
-                  Välj en sparad rutin – läggs till direkt i passet.
+                  {t('quick.templateTitle')}
                 </Text>
                 <View style={styles.templateListCard}>
                   {templates.length === 0 ? (
                     <View style={styles.templateEmpty}>
                       <Text style={styles.emptyText}>
-                        Inga sparade rutiner ännu. Spara ett pass som rutin för att se det här.
+                        {t('quick.templateEmpty')}
                       </Text>
                     </View>
                   ) : (
@@ -747,7 +868,7 @@ export default function QuickWorkoutScreen() {
                             applyTemplate(t);
                           }}
                           activeOpacity={0.85}
-                          accessibilityLabel={`Välj rutin ${t.name}`}
+                          accessibilityLabel={t('quick.templateA11y', t.name)}
                           accessibilityRole="button"
                         >
                           <View style={styles.templateLeft}>
@@ -776,12 +897,12 @@ export default function QuickWorkoutScreen() {
             )}
 
             <View style={styles.selectedBox}>
-            <Text style={styles.sectionLabel}>Valda övningar</Text>
+            <Text style={styles.sectionLabel}>{t('quick.selectedLabel')}</Text>
             {exercises.length === 0 ? (
               <EmptyState
-                title="Inga övningar ännu"
-                subtitle="Öppna biblioteket eller lägg till en egen för att börja."
-                ctaLabel="Välj övningar"
+                title={t('quick.emptyExercisesTitle')}
+                subtitle={t('quick.emptyExercisesSub')}
+                ctaLabel={t('quick.chooseExercises')}
                 onPressCta={() => {
                   setShowExerciseList(true);
                   setShowCustomInput(false);
@@ -795,7 +916,7 @@ export default function QuickWorkoutScreen() {
                       <Text style={styles.selectedName}>{ex.name}</Text>
                     </View>
                     <TouchableOpacity onPress={() => removeExercise(ex.id)}>
-                      <Text style={styles.removeText}>Ta bort</Text>
+                      <Text style={styles.removeText}>{t('common.remove')}</Text>
                     </TouchableOpacity>
                   </View>
                 ))
@@ -804,7 +925,7 @@ export default function QuickWorkoutScreen() {
 
             {exercises.length > 0 && (
               <NeonButton
-                title="✅ Klar med val av övningar"
+                title={t('quick.confirmExercises')}
                 onPress={() => {
                   setShowDetails(true);
                   setShowExerciseList(false);
@@ -812,7 +933,7 @@ export default function QuickWorkoutScreen() {
                 }}
                 variant="green"
                 style={styles.confirmButton}
-                accessibilityLabel="Klar med val av övningar"
+                accessibilityLabel={t('quick.confirmExercises')}
                 accessibilityRole="button"
               />
             )}
@@ -840,7 +961,7 @@ export default function QuickWorkoutScreen() {
               ))}
 
               <TouchableOpacity style={styles.addExerciseButton} onPress={addExercise} activeOpacity={0.9}>
-                <Text style={styles.addExerciseText}>+ Lägg till övning</Text>
+                <Text style={styles.addExerciseText}>{t('quick.addExercise')}</Text>
               </TouchableOpacity>
 
               {inputError ? <Text style={styles.errorText}>{inputError}</Text> : null}

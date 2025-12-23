@@ -19,12 +19,14 @@ import {
 import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { useTranslation } from '../../context/TranslationContext';
 import { toast } from '../../utils/toast';
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { workouts, removeWorkout, updateWorkout, addWorkout } = useWorkouts();
+  const { t } = useTranslation();
 
   const workout = useMemo(
     () => workouts.find((w) => w.id === id),
@@ -62,28 +64,28 @@ export default function WorkoutDetailScreen() {
   if (!workout) {
     return (
       <View style={[styles.full, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#020617' }]}>
-        <Text style={styles.notFoundText}>Kunde inte hitta det här passet.</Text>
+        <Text style={styles.notFoundText}>{t('workoutDetail.notFound')}</Text>
       </View>
     );
   }
 
   const handleDelete = () => {
     Alert.alert(
-      'Ta bort pass',
-      'Är du säker på att du vill ta bort detta pass?',
+      t('workoutDetail.deleteTitle'),
+      t('workoutDetail.deleteConfirm'),
       [
-        { text: 'Avbryt', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Ta bort',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: () => {
             const removed = workout;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             removeWorkout(workout.id);
-            toast('Pass borttaget');
-            Alert.alert('Borttaget', 'Passet togs bort.', [
+            toast(t('workoutDetail.deletedToast'));
+            Alert.alert(t('workoutDetail.deletedTitle'), t('workoutDetail.deletedBody'), [
               {
-                text: 'Ångra',
+                text: t('common.undo'),
                 style: 'default',
                 onPress: () => {
                   Haptics.selectionAsync();
@@ -91,7 +93,7 @@ export default function WorkoutDetailScreen() {
                 },
               },
               {
-                text: 'OK',
+                text: t('common.ok'),
                 style: 'default',
                 onPress: () => router.back(),
               },
@@ -106,7 +108,7 @@ export default function WorkoutDetailScreen() {
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
-      Alert.alert('Fel', 'Titeln får inte vara tom.');
+      Alert.alert(t('common.error'), t('workoutDetail.titleEmpty'));
       return;
     }
 
@@ -127,9 +129,9 @@ export default function WorkoutDetailScreen() {
     };
 
     updateWorkout(updatedWorkout);
-    toast('Pass sparat');
+    toast(t('workoutDetail.savedToast'));
     setIsEditing(false);
-    Alert.alert('Sparat', 'Passet har uppdaterats.');
+    Alert.alert(t('workoutDetail.savedTitle'), t('workoutDetail.savedBody'));
   };
 
   const handleDateChange = (
@@ -161,7 +163,7 @@ export default function WorkoutDetailScreen() {
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* TILLBAKA + TITEL */}
+        {/* BACK + TITLE */}
         <View style={styles.topRow}>
           <TouchableOpacity
             style={styles.backButton}
@@ -169,19 +171,19 @@ export default function WorkoutDetailScreen() {
           >
             <ArrowLeft size={18} color={colors.textMain} />
           </TouchableOpacity>
-          <Text style={styles.screenTitle}>Passdetaljer</Text>
+          <Text style={styles.screenTitle}>{t('workoutDetail.title')}</Text>
         </View>
 
         {/* PASSINFO */}
         <GlassCard style={styles.card}>
           {isEditing ? (
             <>
-              <Text style={styles.label}>Titel</Text>
+              <Text style={styles.label}>{t('workoutDetail.nameLabel')}</Text>
               <TextInput
                 value={title}
                 onChangeText={(t) => {
                   if (t.length > 60) {
-                    setDetailError('Titel max 60 tecken.');
+                    setDetailError(t('workoutDetail.titleMax'));
                     setTitle(t.slice(0, 60));
                   } else {
                     setDetailError('');
@@ -189,30 +191,30 @@ export default function WorkoutDetailScreen() {
                   }
                 }}
                 style={styles.input}
-                placeholder="Titel"
+                placeholder={t('workoutDetail.namePlaceholder')}
                 placeholderTextColor="#64748b"
                 maxLength={60}
               />
 
-              <Text style={[styles.label, { marginTop: 10 }]}>Datum</Text>
+              <Text style={[styles.label, { marginTop: 10 }]}>{t('workoutDetail.dateLabel')}</Text>
               <View style={styles.datePickerRow}>
                 <TouchableOpacity
                   style={styles.datePickerField}
                   onPress={() => setShowDatePicker(true)}
                   activeOpacity={0.9}
-                  accessibilityLabel="Välj datum"
+                  accessibilityLabel={t('workoutDetail.dateOpen')}
                   accessibilityRole="button"
                 >
                   <CalendarIcon size={16} color={colors.textMain} />
                   <Text style={styles.datePickerText}>
-                    {date || 'Välj datum'}
+                    {date || t('workoutDetail.datePlaceholder')}
                   </Text>
                 </TouchableOpacity>
                 <View style={styles.dateQuickRow}>
                   {[
-                    { label: 'Idag', value: new Date() },
+                    { label: t('workoutDetail.today'), value: new Date() },
                     {
-                      label: 'Imorgon',
+                      label: t('workoutDetail.tomorrow'),
                       value: new Date(Date.now() + 24 * 60 * 60 * 1000),
                     },
                   ].map((d) => {
@@ -231,7 +233,7 @@ export default function WorkoutDetailScreen() {
                           setDetailError('');
                           Haptics.selectionAsync();
                         }}
-                        accessibilityLabel={`Välj ${d.label}`}
+                        accessibilityLabel={t('workoutDetail.dateQuickA11y', d.label)}
                         accessibilityRole="button"
                       >
                         <Text
@@ -248,12 +250,12 @@ export default function WorkoutDetailScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.label, { marginTop: 10 }]}>Anteckningar</Text>
+              <Text style={[styles.label, { marginTop: 10 }]}>{t('workoutDetail.notesLabel')}</Text>
               <TextInput
                 value={notes}
                 onChangeText={(t) => {
                   if (t.length > 220) {
-                    setDetailError('Anteckningar max 220 tecken.');
+                    setDetailError(t('workoutDetail.notesMax'));
                     setNotes(t.slice(0, 220));
                   } else {
                     setDetailError('');
@@ -261,7 +263,7 @@ export default function WorkoutDetailScreen() {
                   }
                 }}
                 style={[styles.input, styles.notesInput]}
-                placeholder="Anteckningar om passet"
+                placeholder={t('workoutDetail.notesPlaceholder')}
                 placeholderTextColor="#64748b"
                 multiline
                 maxLength={220}
@@ -272,13 +274,13 @@ export default function WorkoutDetailScreen() {
               <Text style={styles.workoutTitle}>{workout.title}</Text>
               <Text style={styles.workoutDate}>{workout.date}</Text>
               {workout.sourceTemplateId ? (
-                <Text style={styles.templateBadge}>Rutin</Text>
+                <Text style={styles.templateBadge}>{t('workoutDetail.templateBadge')}</Text>
               ) : null}
               {workout.notes ? (
                 <Text style={styles.workoutNotes}>{workout.notes}</Text>
               ) : (
                 <Text style={styles.workoutNotesPlaceholder}>
-                  Inga anteckningar
+                  {t('workoutDetail.notesEmpty')}
                 </Text>
               )}
             </>
@@ -292,18 +294,18 @@ export default function WorkoutDetailScreen() {
             onPress={handleDelete}
           >
             <Trash2 size={16} color="#fee2e2" />
-            <Text style={styles.buttonText}>Ta bort pass</Text>
+            <Text style={styles.buttonText}>{t('workoutDetail.deleteCta')}</Text>
           </TouchableOpacity>
 
           {isEditing ? (
               <TouchableOpacity
                 style={[styles.button, styles.saveButton]}
                 onPress={handleSave}
-                accessibilityLabel="Spara pass"
+                accessibilityLabel={t('workoutDetail.saveA11y')}
                 accessibilityRole="button"
               >
                 <Save size={16} color="#022c22" />
-                <Text style={styles.buttonTextDark}>Spara</Text>
+                <Text style={styles.buttonTextDark}>{t('common.save')}</Text>
               </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -314,11 +316,11 @@ export default function WorkoutDetailScreen() {
                 setNotes(workout.notes ?? '');
                 setIsEditing(true);
               }}
-              accessibilityLabel="Redigera pass"
+              accessibilityLabel={t('workoutDetail.editA11y')}
               accessibilityRole="button"
             >
               <Pencil size={16} color="#e5e7eb" />
-              <Text style={styles.buttonText}>Redigera</Text>
+              <Text style={styles.buttonText}>{t('common.edit')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -336,11 +338,11 @@ export default function WorkoutDetailScreen() {
                 },
               });
             }}
-            accessibilityLabel="Starta pass från denna rutin igen"
+              accessibilityLabel={t('workoutDetail.startRoutine')}
             accessibilityRole="button"
           >
             <Play size={16} color="#022c22" />
-            <Text style={styles.buttonTextDark}>Starta rutinen igen</Text>
+            <Text style={styles.buttonTextDark}>{t('workoutDetail.startRoutine')}</Text>
           </TouchableOpacity>
         ) : null}
         {detailError ? (
@@ -351,14 +353,14 @@ export default function WorkoutDetailScreen() {
 
         {/* ÖVNINGAR I PASSET */}
         <GlassCard style={[styles.card, { marginTop: 14 }]}>
-          <Text style={styles.sectionTitle}>Övningar i passet</Text>
+          <Text style={styles.sectionTitle}>{t('workoutDetail.exercisesTitle')}</Text>
           <Text style={styles.sectionSub}>
-            Tryck på en övning för att se din historik och progression.
+            {t('workoutDetail.exercisesSub')}
           </Text>
 
           {(!workout.exercises || workout.exercises.length === 0) && (
             <Text style={styles.emptyText}>
-              Inga övningar registrerade för detta pass.
+              {t('workoutDetail.exercisesEmpty')}
             </Text>
           )}
 
@@ -384,11 +386,11 @@ export default function WorkoutDetailScreen() {
                   <View style={styles.performedSetsBox}>
                     <View style={styles.performedSetsHeader}>
                       <ListChecks size={14} color={colors.textSoft} />
-                      <Text style={styles.performedSetsTitle}>Loggade set</Text>
+                      <Text style={styles.performedSetsTitle}>{t('workoutDetail.loggedSets')}</Text>
                     </View>
                     {ex.performedSets?.map((s, idx) => (
                       <View key={`${ex.id}-${idx}`} style={styles.performedSetRow}>
-                        <Text style={styles.performedSetLabel}>Set {idx + 1}</Text>
+                        <Text style={styles.performedSetLabel}>{t('workoutDetail.setLabel', idx + 1)}</Text>
                         <View style={styles.performedInputs}>
                           <TextInput
                             style={styles.performedInput}
@@ -409,7 +411,7 @@ export default function WorkoutDetailScreen() {
                                 )
                               )
                             }
-                            accessibilityLabel="Ändra reps"
+                            accessibilityLabel={t('workoutDetail.changeRepsA11y')}
                             accessibilityRole="adjustable"
                             keyboardType="numeric"
                           />
@@ -421,7 +423,7 @@ export default function WorkoutDetailScreen() {
                               const cleaned = t.replace(/[^0-9.,-]/g, '').replace(',', '.');
                               const num = parseFloat(cleaned);
                               if (Number.isNaN(num) || num < 0) {
-                                setDetailError('Vikt måste vara ett tal ≥ 0.');
+                                setDetailError(t('workoutDetail.weightNonNegative'));
                                 return;
                               }
                               setDetailError('');
@@ -470,13 +472,13 @@ export default function WorkoutDetailScreen() {
                             activeOpacity={0.9}
                             accessibilityLabel={
                               s.done
-                                ? 'Set markerat klart, tryck för att ångra'
-                                : 'Markera set som klart'
+                                ? t('workoutDetail.setToggleOn')
+                                : t('workoutDetail.setToggleOff')
                             }
                             accessibilityRole="button"
                           >
                             <Text style={s.done ? styles.setButtonTextDone : styles.setButtonText}>
-                              {s.done ? 'Klart' : 'Markera'}
+                              {s.done ? t('workoutDetail.setDone') : t('workoutDetail.setMark')}
                             </Text>
                           </TouchableOpacity>
                         </View>

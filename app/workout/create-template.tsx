@@ -19,6 +19,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { Template, useWorkouts } from '../../context/WorkoutsContext';
 import { toast } from '../../utils/toast';
+import { useTranslation } from '../../context/TranslationContext';
 
 const WORKOUT_COLORS = [
   { label: 'Blå (Push)', value: '#3b82f6' },
@@ -42,6 +43,7 @@ type TemplateExerciseInput = {
 export default function CreateTemplateScreen() {
   const router = useRouter();
   const { addTemplate } = useWorkouts();
+  const { t } = useTranslation();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -89,7 +91,7 @@ export default function CreateTemplateScreen() {
   const handleSaveTemplate = () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      Alert.alert('Fel', 'Rutinen behöver ett namn.');
+      Alert.alert(t('common.error'), t('templateBuilder.nameError'));
       return;
     }
 
@@ -100,13 +102,13 @@ export default function CreateTemplateScreen() {
         sets: ex.sets ? Number(ex.sets) : 0,
         reps: ex.reps || '',
         weight: ex.weight ? Number(ex.weight.replace(',', '.')) : 0,
-        muscleGroup: 'Övrigt',
+        muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
       }));
 
     if (cleanedExercises.length === 0) {
       Alert.alert(
-        'Fel',
-        'Lägg till minst en övning med namn innan du sparar rutinen.'
+        t('common.error'),
+        t('templateBuilder.exerciseError')
       );
       return;
     }
@@ -121,10 +123,10 @@ export default function CreateTemplateScreen() {
 
     addTemplate(newTemplate);
 
-    toast('Rutin sparad');
-    Alert.alert('Sparad', 'Rutinen har sparats.', [
+    toast(t('templateBuilder.savedToast'));
+    Alert.alert(t('templateBuilder.savedTitle'), t('templateBuilder.savedBody'), [
       {
-        text: 'OK',
+        text: t('common.ok'),
         onPress: () => router.back(),
       },
     ]);
@@ -151,31 +153,30 @@ export default function CreateTemplateScreen() {
                 <ListChecks color="#e0f2fe" size={24} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>Skapa rutin</Text>
+                <Text style={styles.title}>{t('templateBuilder.title')}</Text>
                 <Text style={styles.subtitle}>
-                  Bygg ett favoritpass med färg, övningar och struktur som du
-                  kan återanvända när du vill.
+                  {t('templateBuilder.subtitle')}
                 </Text>
               </View>
             </View>
 
             {/* BASINFO */}
             <GlassCard style={styles.card}>
-              <Text style={styles.label}>Namn på rutin</Text>
+              <Text style={styles.label}>{t('templateBuilder.nameLabel')}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="T.ex. Push, Pull, Ben tung, Helkropp"
+                placeholder={t('templateBuilder.namePlaceholder')}
                 placeholderTextColor={colors.textSoft}
                 value={name}
                 onChangeText={setName}
               />
 
               <Text style={[styles.label, { marginTop: 10 }]}>
-                Beskrivning (valfritt)
+                {t('templateBuilder.descLabel')}
               </Text>
               <TextInput
                 style={[styles.input, styles.multilineInput]}
-                placeholder="T.ex. fokus på bröst & triceps, 60 min, tungt."
+                placeholder={t('templateBuilder.descPlaceholder')}
                 placeholderTextColor={colors.textSoft}
                 value={description}
                 onChangeText={setDescription}
@@ -187,11 +188,11 @@ export default function CreateTemplateScreen() {
                 <View style={styles.colorLabelRow}>
                   <Palette size={16} color={colors.primary} />
                   <Text style={[styles.label, { marginLeft: 6 }]}>
-                    Färg på rutin
+                    {t('templateBuilder.colorLabel')}
                   </Text>
                 </View>
                 <Text style={styles.colorHint}>
-                  Färgen används i kalendern & listor.
+                  {t('templateBuilder.colorHint')}
                 </Text>
               </View>
 
@@ -216,14 +217,13 @@ export default function CreateTemplateScreen() {
             {/* ÖVNINGAR */}
             <GlassCard style={styles.card}>
               <View style={styles.exHeaderRow}>
-                <Text style={styles.sectionTitle}>Övningar i rutinen</Text>
+                <Text style={styles.sectionTitle}>{t('templateBuilder.exTitle')}</Text>
                 <TouchableOpacity onPress={handleAddExercise}>
-                  <Text style={styles.addExerciseText}>+ Lägg till övning</Text>
+                  <Text style={styles.addExerciseText}>{t('templateBuilder.addExercise')}</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.sectionSub}>
-                Skapa ett upplägg du vill köra flera gånger. Du kan alltid
-                ändra eller göra nya varianter senare.
+                {t('templateBuilder.exSub')}
               </Text>
 
               {exercises.map((ex, index) => (
@@ -231,7 +231,7 @@ export default function CreateTemplateScreen() {
                   <View style={styles.exerciseHeaderRow}>
                     <Text style={styles.exerciseIndex}>
                       #{index + 1}{' '}
-                      <Text style={styles.exerciseIndexLabel}>övning</Text>
+                      <Text style={styles.exerciseIndexLabel}>{t('templateBuilder.exLabel')}</Text>
                     </Text>
                     {exercises.length > 1 && (
                       <TouchableOpacity
@@ -244,7 +244,7 @@ export default function CreateTemplateScreen() {
 
                   <TextInput
                     style={styles.input}
-                    placeholder="Namn (t.ex. Bänkpress)"
+                    placeholder={t('templateBuilder.exPlaceholder')}
                     placeholderTextColor={colors.textSoft}
                     value={ex.name}
                     onChangeText={(t) =>
@@ -284,7 +284,7 @@ export default function CreateTemplateScreen() {
                       <Text style={styles.labelSmall}>Vikt (kg)</Text>
                       <TextInput
                         style={styles.inlineInput}
-                        placeholder="Valfritt"
+                        placeholder={t('templateBuilder.weightPlaceholder')}
                         placeholderTextColor={colors.textSoft}
                         keyboardType="numeric"
                         value={ex.weight}
@@ -299,11 +299,11 @@ export default function CreateTemplateScreen() {
 
               <TouchableOpacity
                 style={styles.saveButton}
-            onPress={handleSaveTemplate}
-            activeOpacity={0.95}
-          >
-            <Text style={styles.saveButtonText}>💾 Spara rutin</Text>
-          </TouchableOpacity>
+                onPress={handleSaveTemplate}
+                activeOpacity={0.95}
+              >
+                <Text style={styles.saveButtonText}>{t('templateBuilder.saveCta')}</Text>
+              </TouchableOpacity>
           {error ? (
             <Text style={{ color: '#fca5a5', fontSize: 12, marginTop: 6 }}>
               {error}

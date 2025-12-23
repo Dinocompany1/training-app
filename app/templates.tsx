@@ -7,6 +7,7 @@ import React from 'react';
 import {
   Alert,
   FlatList,
+  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,34 +18,36 @@ import NeonButton from '../components/ui/NeonButton';
 import { colors, gradients, typography } from '../constants/theme';
 import { Template, useWorkouts } from '../context/WorkoutsContext';
 import { toast } from '../utils/toast';
+import { useTranslation } from '../context/TranslationContext';
 
 export default function TemplatesScreen() {
   const { templates, removeTemplate, addTemplate } = useWorkouts();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const handleDelete = (template: Template) => {
     Alert.alert(
-      'Ta bort rutin',
-      `Vill du ta bort rutinen "${template.name}"?`,
+      t('templates.deleteTitle'),
+      t('templates.deleteConfirm', template.name),
       [
-        { text: 'Avbryt', style: 'cancel' },
+        { text: t('templates.cancel'), style: 'cancel' },
         {
-          text: 'Ta bort',
+          text: t('templates.delete'),
           style: 'destructive',
           onPress: () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             removeTemplate(template.id);
-            toast('Rutin borttagen');
-            Alert.alert('Borttaget', 'Rutinen togs bort.', [
+            toast(t('templates.deletedToast'));
+            Alert.alert(t('templates.deletedTitle'), t('templates.deletedBody'), [
               {
-                text: 'Ångra',
+                text: t('templates.undo'),
                 style: 'default',
                 onPress: () => {
                   Haptics.selectionAsync();
                   addTemplate(template);
                 },
               },
-              { text: 'OK', style: 'default' },
+              { text: t('templates.ok'), style: 'default' },
             ]);
           },
         },
@@ -53,118 +56,107 @@ export default function TemplatesScreen() {
   };
 
   return (
-    <LinearGradient colors={gradients.appBackground} style={styles.full}>
-      <View style={styles.spotlight} />
-      <FlatList
-        data={templates}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.container}
-        ListHeaderComponent={
-          <View style={styles.header}>
-            <Text style={styles.title}>Sparade rutiner</Text>
-            <Text style={styles.subtitle}>
-              Starta ett pass direkt från en rutin eller skapa en ny mall.
-            </Text>
-            <NeonButton
-              title="✨ Skapa ny rutin"
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/routine-builder');
-              }}
-              style={{ marginTop: 8 }}
-              toastMessage="Öppnar rutinbyggare"
-            />
-          </View>
-        }
-        renderItem={({ item }) => (
-          <GlassCard style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={[styles.colorDot, { backgroundColor: item.color }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                <Text style={styles.cardMeta}>
-                  {item.exercises.length} övningar
-                  {item.description ? ` · ${item.description}` : ''}
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => handleDelete(item)}
-                accessibilityLabel={`Ta bort rutin ${item.name}`}
-                accessibilityRole="button"
-              >
-                <Trash2 size={18} color="#fca5a5" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.exerciseRow}>
-              {item.exercises.slice(0, 3).map((ex) => (
-                <Text key={ex.name} style={styles.exerciseTag}>
-                  {ex.name}
-                </Text>
-              ))}
-              {item.exercises.length > 3 && (
-                <Text style={styles.exerciseTag}>
-                  +{item.exercises.length - 3} till
-                </Text>
-              )}
-            </View>
-            <View style={styles.actionsRow}>
-              <TouchableOpacity
-                style={[styles.actionChip, styles.primaryChip]}
-                activeOpacity={0.9}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push({
-                    pathname: '/workout/quick-workout',
-                    params: {
-                      title: item.name,
-                      color: item.color,
-                      templateId: item.id,
-                    },
-                  });
-                }}
-              >
-                <Play size={16} color="#022c22" />
-                <Text style={styles.primaryText}>Starta pass</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionChip, styles.secondaryChip]}
-                activeOpacity={0.9}
+    <SafeAreaView style={styles.safe}>
+      <LinearGradient colors={gradients.appBackground} style={styles.full}>
+        <View style={styles.spotlight} />
+        <FlatList
+          data={templates}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.container}
+          ListHeaderComponent={
+            <View style={styles.header}>
+              <Text style={styles.title}>{t('templates.title')}</Text>
+              <Text style={styles.subtitle}>
+                {t('templates.subtitle')}
+              </Text>
+              <NeonButton
+                title={t('templates.createCta')}
                 onPress={() => {
                   Haptics.selectionAsync();
                   router.push('/routine-builder');
                 }}
-              >
-                <Plus size={16} color="#0b1120" />
-                <Text style={styles.secondaryText}>Ny rutin</Text>
-              </TouchableOpacity>
+                style={{ marginTop: 8 }}
+                toastMessage={t('templates.createToast')}
+              />
             </View>
-          </GlassCard>
-        )}
-        ListEmptyComponent={
-          <GlassCard style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Inga rutiner ännu</Text>
-            <Text style={styles.emptyText}>
-              Skapa en rutin för dina favoritpass så kan du starta dem med ett klick.
-            </Text>
-            <NeonButton
-              title="✨ Skapa din första rutin"
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/routine-builder');
-              }}
-              style={{ marginTop: 10 }}
-              toastMessage="Öppnar rutinbyggare"
-            />
-          </GlassCard>
-        }
+          }
+          renderItem={({ item }) => (
+            <GlassCard style={styles.card}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.colorDot, { backgroundColor: item.color }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{item.name}</Text>
+                  <Text style={styles.cardMeta}>
+                    {t('templates.metaExercises', item.exercises.length)}
+                    {item.description ? ` · ${item.description}` : ''}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => handleDelete(item)}
+                  accessibilityLabel={t('templates.removeA11y', item.name)}
+                  accessibilityRole="button"
+                >
+                  <Trash2 size={18} color="#fca5a5" />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.exerciseRow}>
+                {item.exercises.slice(0, 3).map((ex) => (
+                  <Text key={ex.name} style={styles.exerciseTag}>
+                    {ex.name}
+                  </Text>
+                ))}
+                {item.exercises.length > 3 && (
+                  <Text style={styles.exerciseTag}>
+                    {t('templates.moreCount', item.exercises.length - 3)}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.actionsRow}>
+                <TouchableOpacity
+                  style={[styles.actionChip, styles.primaryChip]}
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push({
+                      pathname: '/workout/quick-workout',
+                      params: {
+                        title: item.name,
+                        color: item.color,
+                        templateId: item.id,
+                      },
+                    });
+                  }}
+                >
+                  <Play size={16} color="#022c22" />
+                  <Text style={styles.primaryText}>{t('templates.start')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionChip, styles.secondaryChip]}
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/routine-builder');
+                  }}
+                >
+                  <Plus size={16} color="#0b1120" />
+                  <Text style={styles.secondaryText}>{t('templates.newRoutine')}</Text>
+                </TouchableOpacity>
+              </View>
+            </GlassCard>
+          )}
         ListFooterComponent={<View style={{ height: 40 }} />}
         showsVerticalScrollIndicator={false}
       />
-    </LinearGradient>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   full: {
     flex: 1,
   },

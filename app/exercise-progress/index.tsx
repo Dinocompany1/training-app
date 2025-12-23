@@ -19,6 +19,7 @@ import {
   CustomExercise,
 } from '../../constants/exerciseLibrary';
 import { Image } from 'expo-image';
+import { useTranslation } from '../../context/TranslationContext';
 
 const PLACEHOLDER_IMG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAZlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////8F6kJ+AAAAIHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyoyXwAAAChJREFUGNNjYGBgZGJmBgYWiJmFlYGRiYGRiZWBgYkB4hkZiRmBgYGRAAAWCwH4kG3QjgAAAABJRU5ErkJggg==';
@@ -42,6 +43,7 @@ interface ExerciseSummary {
 export default function ExerciseProgressListScreen() {
   const router = useRouter();
   const { workouts, customExercises } = useWorkouts();
+  const { t } = useTranslation();
 
   const summaries: ExerciseSummary[] = useMemo(() => {
     const map = new Map<string, ExerciseSummary>();
@@ -142,17 +144,16 @@ export default function ExerciseProgressListScreen() {
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Övningsprogress</Text>
+        <Text style={styles.title}>{t('exerciseProgress.title')}</Text>
         <Text style={styles.subtitle}>
-          Se en snabb översikt över dina vanligaste övningar och utvecklingen i
-          varje.
+          {t('exerciseProgress.subtitle')}
         </Text>
 
         {summaries.length === 0 ? (
           <EmptyState
-            title="Ingen övningsdata ännu"
-            subtitle="Logga ett pass för att se din övningsprogress här."
-            ctaLabel="Logga pass"
+            title={t('exerciseProgress.emptyTitle')}
+            subtitle={t('exerciseProgress.emptySubtitle')}
+            ctaLabel={t('exerciseProgress.emptyCta')}
             onPressCta={() => router.push('/workout/quick-workout')}
           />
         ) : (
@@ -183,24 +184,24 @@ export default function ExerciseProgressListScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.exerciseName}>{ex.name}</Text>
                     <Text style={styles.exerciseMeta}>
-                      Senast tränad: {ex.lastDate}
+                      {t('exerciseProgress.lastTrained', ex.lastDate)}
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.statsRow}>
                   <View style={styles.statBox}>
-                    <Text style={styles.statLabel}>Pass</Text>
+                    <Text style={styles.statLabel}>{t('exerciseProgress.sessions')}</Text>
                     <Text style={styles.statValue}>{ex.sessions}</Text>
                   </View>
                   <View style={styles.statBox}>
-                    <Text style={styles.statLabel}>Tyngsta vikt</Text>
+                    <Text style={styles.statLabel}>{t('exerciseProgress.bestWeight')}</Text>
                     <Text style={styles.statValue}>
                       {ex.bestWeight > 0 ? `${ex.bestWeight} kg` : '–'}
                     </Text>
                   </View>
                   <View style={styles.statBox}>
-                    <Text style={styles.statLabel}>Totalt antal set</Text>
+                    <Text style={styles.statLabel}>{t('exerciseProgress.totalSets')}</Text>
                     <Text style={styles.statValue}>{ex.totalSets}</Text>
                   </View>
                 </View>
@@ -208,7 +209,7 @@ export default function ExerciseProgressListScreen() {
                 {/* enkel "progressbar" för hur ofta den tränats */}
                 <View style={styles.frequencyRow}>
                   <Text style={styles.frequencyLabel}>
-                    Användningsfrekvens
+                    {t('exerciseProgress.frequency')}
                   </Text>
                   <View style={styles.frequencyBarBg}>
                     <View

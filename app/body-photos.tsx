@@ -16,12 +16,14 @@ import {
 import GlassCard from '../components/ui/GlassCard';
 import { colors, gradients, typography } from '../constants/theme';
 import { BodyPhoto, useWorkouts } from '../context/WorkoutsContext';
+import { useTranslation } from '../context/TranslationContext';
 
 const todayStr = new Date().toISOString().slice(0, 10);
 
 export default function BodyPhotosScreen() {
   const router = useRouter();
   const { bodyPhotos, addBodyPhoto, removeBodyPhoto } = useWorkouts();
+  const { t } = useTranslation();
 
   const [uri, setUri] = useState('');
   const [date, setDate] = useState(todayStr);
@@ -38,7 +40,7 @@ export default function BodyPhotosScreen() {
   const handleAdd = () => {
     const trimmed = uri.trim();
     if (!trimmed) {
-      Alert.alert('Fel', 'Lägg in en bild-URL först.');
+      Alert.alert(t('common.error'), t('bodyPhotos.urlError'));
       return;
     }
     const photo: BodyPhoto = {
@@ -53,10 +55,10 @@ export default function BodyPhotosScreen() {
   };
 
   const handleRemove = (id: string) => {
-    Alert.alert('Ta bort bild', 'Är du säker?', [
-      { text: 'Avbryt', style: 'cancel' },
+    Alert.alert(t('bodyPhotos.deleteTitle'), t('bodyPhotos.deleteConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Ta bort',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => removeBodyPhoto(id),
       },
@@ -75,14 +77,13 @@ export default function BodyPhotosScreen() {
       >
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.backText}>← Tillbaka</Text>
+            <Text style={styles.backText}>{t('bodyPhotos.back')}</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Kroppsbilder</Text>
+          <Text style={styles.title}>{t('bodyPhotos.title')}</Text>
           <View style={{ width: 70 }} />
         </View>
         <Text style={styles.subtitle}>
-          Spara formbilder och anteckningar. Klistra in en URL till bilden för
-          att spara den (kamerauppladdning kan läggas till senare).
+          {t('bodyPhotos.subtitle')}
         </Text>
 
         <GlassCard style={styles.card}>
@@ -92,7 +93,7 @@ export default function BodyPhotosScreen() {
               style={styles.input}
               value={uri}
               onChangeText={setUri}
-              placeholder="Bild-URL (https://...)"
+              placeholder={t('bodyPhotos.urlPlaceholder')}
               placeholderTextColor={colors.textSoft}
               autoCapitalize="none"
             />
@@ -101,14 +102,14 @@ export default function BodyPhotosScreen() {
             style={styles.input}
             value={date}
             onChangeText={setDate}
-            placeholder="YYYY-MM-DD"
+            placeholder={t('bodyPhotos.datePlaceholder')}
             placeholderTextColor={colors.textSoft}
           />
           <TextInput
             style={[styles.input, styles.noteInput]}
             value={note}
             onChangeText={setNote}
-            placeholder="Anteckning (valfritt)"
+            placeholder={t('bodyPhotos.notePlaceholder')}
             placeholderTextColor={colors.textSoft}
             multiline
           />
@@ -117,7 +118,7 @@ export default function BodyPhotosScreen() {
             onPress={handleAdd}
             activeOpacity={0.9}
           >
-            <Text style={styles.saveButtonText}>+ Lägg till bild</Text>
+            <Text style={styles.saveButtonText}>{t('bodyPhotos.saveCta')}</Text>
           </TouchableOpacity>
         </GlassCard>
 
@@ -132,7 +133,7 @@ export default function BodyPhotosScreen() {
                         {p.note}
                       </Text>
                     ) : (
-                      <Text style={styles.photoNoteMuted}>Ingen anteckning</Text>
+                      <Text style={styles.photoNoteMuted}>{t('bodyPhotos.noNote')}</Text>
                     )}
                   </View>
                   <TouchableOpacity onPress={() => handleRemove(p.id)}>
@@ -142,7 +143,7 @@ export default function BodyPhotosScreen() {
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => router.push({ pathname: '/modal', params: { uri: p.uri } })}
-                  accessibilityLabel="Visa bild i full storlek"
+                  accessibilityLabel={t('bodyPhotos.viewFull')}
                   accessibilityRole="button"
                 >
                   <View style={styles.imageWrapper}>

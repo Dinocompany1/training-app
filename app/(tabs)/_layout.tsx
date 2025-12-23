@@ -9,8 +9,10 @@ import {
 } from 'lucide-react-native';
 import React from 'react';
 import { colors } from '../../constants/theme';
+import { useTranslation } from '../../context/TranslationContext';
 
 export default function TabLayout() {
+  const { t } = useTranslation();
   const tint = colors.primary;
   const bg = '#020617';
   const border = 'rgba(15,23,42,1)';
@@ -34,7 +36,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Hem',
+          title: t('tabs.home'),
           tabBarIcon: ({ color, size }) => (
             <Home color={color} size={size} />
           ),
@@ -44,7 +46,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="add-workout"
         options={{
-          title: 'Lägg till',
+          title: t('tabs.add'),
           tabBarIcon: ({ color, size }) => (
             <PlusCircle color={color} size={size} />
           ),
@@ -54,7 +56,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Kalender',
+          title: t('tabs.calendar'),
           tabBarIcon: ({ color, size }) => (
             <CalendarDays color={color} size={size} />
           ),
@@ -64,7 +66,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="stats"
         options={{
-          title: 'Statistik',
+          title: t('tabs.stats'),
           tabBarIcon: ({ color, size }) => (
             <BarChart3 color={color} size={size} />
           ),
@@ -74,7 +76,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profil',
+          title: t('tabs.profile'),
           tabBarIcon: ({ color, size }) => (
             <User color={color} size={size} />
           ),

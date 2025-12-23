@@ -2,7 +2,7 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
   Alert,
@@ -15,10 +15,10 @@ import {
 } from 'react-native';
 import { Calendar, DateObject } from 'react-native-calendars';
 import GlassCard from '../../components/ui/GlassCard';
-import NeonButton from '../../components/ui/NeonButton';
 import BadgePill from '../../components/ui/BadgePill';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { useTranslation } from '../../context/TranslationContext';
 import { toast } from '../../utils/toast';
 
 function parseISO(dateStr: string) {
@@ -38,6 +38,7 @@ function hexToRgba(hex: string, alpha: number) {
 
 export default function CalendarScreen() {
   const { workouts, removeWorkout, addWorkout, templates } = useWorkouts();
+  const { t } = useTranslation();
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DONE' | 'PLANNED'>('ALL');
@@ -62,6 +63,20 @@ export default function CalendarScreen() {
     }
   }, [nearestWorkoutDate, selectedDate, todayIso, workouts.length]);
 
+  const dedupeWorkouts = useCallback((items: typeof workouts) => {
+    const byKey = new Map<string, (typeof workouts)[number]>();
+    items.forEach((w) => {
+      const key = `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
+      const existing = byKey.get(key);
+      if (!existing || (!existing.isCompleted && w.isCompleted)) {
+        byKey.set(key, w);
+      }
+    });
+    return Array.from(byKey.values());
+  }, []);
+
+  const dedupedWorkouts = useMemo(() => dedupeWorkouts(workouts), [dedupeWorkouts, workouts]);
+
   const markedDates = useMemo(() => {
     const marks: Record<
       string,
@@ -73,7 +88,7 @@ export default function CalendarScreen() {
       }
     > = {};
 
-    workouts.forEach((w) => {
+    dedupedWorkouts.forEach((w) => {
       const color = w.color || '#3b82f6';
       const textColor = '#f9fafb';
       const isPlanned = !w.isCompleted;
@@ -125,7 +140,7 @@ export default function CalendarScreen() {
 
   const workoutsForSelectedDay = useMemo(() => {
     if (!selectedDate) return [];
-    return workouts
+    return dedupedWorkouts
       .filter((w) => {
         if (w.date !== selectedDate) return false;
         if (statusFilter === 'DONE') return !!w.isCompleted;
@@ -133,7 +148,7 @@ export default function CalendarScreen() {
         return true;
       })
       .sort((a, b) => a.title.localeCompare(b.title));
-  }, [workouts, selectedDate, statusFilter]);
+  }, [dedupedWorkouts, selectedDate, statusFilter]);
 
   const totalWorkouts = workouts.length;
 
@@ -150,7 +165,7 @@ export default function CalendarScreen() {
 
   const daySummary = useMemo(() => {
     if (!selectedDate) return null;
-    const list = workouts.filter((w) => w.date === selectedDate);
+    const list = dedupedWorkouts.filter((w) => w.date === selectedDate);
     const totalDuration = list.reduce(
       (sum, w) => sum + (w.durationMinutes || 0),
       0
@@ -164,32 +179,32 @@ export default function CalendarScreen() {
       duration: totalDuration,
       exercises: totalExercises,
     };
-  }, [workouts, selectedDate]);
+  }, [dedupedWorkouts, selectedDate]);
 
   const handleDayPress = (day: DateObject) => {
     setSelectedDate(day.dateString);
   };
 
   const handleDelete = (w: (typeof workouts)[number]) => {
-    Alert.alert('Ta bort pass', `Vill du ta bort "${w.title}"?`, [
-      { text: 'Avbryt', style: 'cancel' },
+    Alert.alert(t('calendar.deleteTitle'), t('calendar.deleteConfirm', w.title), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Ta bort',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           removeWorkout(w.id);
-          toast('Pass borttaget');
-          Alert.alert('Borttaget', 'Passet togs bort.', [
+          toast(t('calendar.deletedToast'));
+          Alert.alert(t('calendar.deletedTitle'), t('calendar.deletedBody'), [
             {
-              text: 'Ångra',
+              text: t('common.undo'),
               style: 'default',
               onPress: () => {
                 Haptics.selectionAsync();
                 addWorkout(w);
               },
             },
-            { text: 'OK', style: 'default' },
+            { text: t('common.ok'), style: 'default' },
           ]);
         },
       },
@@ -198,10 +213,8 @@ export default function CalendarScreen() {
 
   const renderEmptyState = () => (
     <GlassCard style={styles.emptyCard}>
-      <Text style={styles.emptyTitle}>Ingen data i kalendern ännu</Text>
-      <Text style={styles.emptySubtitle}>
-        Planera ett framtida pass eller starta ett snabbt pass för att fylla kalendern.
-      </Text>
+      <Text style={styles.emptyTitle}>{t('calendar.emptyHeader')}</Text>
+      <Text style={styles.emptySubtitle}>{t('calendar.emptySub')}</Text>
     </GlassCard>
   );
 
@@ -222,26 +235,16 @@ export default function CalendarScreen() {
           ListHeaderComponent={
             <>
               <View style={styles.header}>
-                <Text style={styles.title}>Din träningskalender</Text>
-                <Text style={styles.subtitle}>
-                  Se dina pass månad för månad och tryck på en dag för detaljer.
-                </Text>
+                <Text style={styles.title}>{t('calendar.title')}</Text>
+                <Text style={styles.subtitle}>{t('calendar.subtitle')}</Text>
               </View>
 
               <View style={styles.row}>
                 <GlassCard style={styles.smallCard}>
-                  <Text style={styles.smallLabel}>Totalt antal pass</Text>
+                  <Text style={styles.smallLabel}>{t('calendar.totalLabel')}</Text>
                   <Text style={styles.smallValue}>{totalWorkouts}</Text>
                   <Text style={styles.smallSub}>
-                    Alla pass du loggat i appen.
-                  </Text>
-                </GlassCard>
-
-                <GlassCard style={styles.smallCard}>
-                  <Text style={styles.smallLabel}>Den här månaden</Text>
-                  <Text style={styles.smallValue}>{thisMonthCounts}</Text>
-                  <Text style={styles.smallSub}>
-                    pass loggade under aktuell månad.
+                    {t('calendar.subtitle')}
                   </Text>
                 </GlassCard>
               </View>
@@ -268,8 +271,8 @@ export default function CalendarScreen() {
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
                   {selectedDate
-                    ? `Pass den ${selectedDate}`
-                    : 'Tryck på en dag för att se pass'}
+                    ? t('calendar.listForDay', undefined, selectedDate)
+                    : t('calendar.selectDay')}
                 </Text>
                 {selectedDate && (
                   <TouchableOpacity
@@ -284,7 +287,7 @@ export default function CalendarScreen() {
                     accessibilityLabel="Planera pass för vald dag"
                     accessibilityRole="button"
                   >
-                    <Text style={styles.planChipText}>🗓️ Planera pass</Text>
+                    <Text style={styles.planChipText}>{t('calendar.planForDay')}</Text>
                   </TouchableOpacity>
                 )}
 
@@ -314,9 +317,9 @@ export default function CalendarScreen() {
                 {selectedDate && (
                   <View style={styles.filterRow}>
                     {[
-                      { key: 'ALL', label: 'Alla' },
-                      { key: 'DONE', label: 'Klara' },
-                      { key: 'PLANNED', label: 'Planerade' },
+                      { key: 'ALL', label: t('calendar.filters.all') },
+                      { key: 'DONE', label: t('calendar.filters.done') },
+                      { key: 'PLANNED', label: t('calendar.filters.planned') },
                     ].map((f) => {
                       const active = statusFilter === f.key;
                       return (
@@ -337,7 +340,7 @@ export default function CalendarScreen() {
                 {selectedDate && workoutsForSelectedDay.length === 0 && (
                   <View style={styles.emptyBox}>
                     <Text style={styles.emptyText}>
-                      Inga pass loggade den här dagen ännu.
+                      {t('calendar.emptyDay')}
                     </Text>
                   </View>
                 )}
@@ -369,7 +372,7 @@ export default function CalendarScreen() {
                         ]}
                       />
                       <Text style={styles.templatePillText}>
-                        {templates.find((t) => t.id === w.sourceTemplateId)?.name || 'Rutin'}
+                        {templates.find((t) => t.id === w.sourceTemplateId)?.name || t('calendar.routine')}
                       </Text>
                     </View>
                   ) : null}
@@ -378,7 +381,7 @@ export default function CalendarScreen() {
                     <View style={styles.headerPills}>
                       {w.sourceTemplateId && (
                         <View style={styles.templatePill}>
-                          <Text style={styles.templatePillText}>Rutin</Text>
+                          <Text style={styles.templatePillText}>{t('calendar.routine')}</Text>
                         </View>
                       )}
                       <View
@@ -390,7 +393,7 @@ export default function CalendarScreen() {
                         ]}
                       >
                         <Text style={styles.statusText}>
-                          {w.isCompleted ? 'Klart' : 'Planerat'}
+                          {w.isCompleted ? t('calendar.status.done') : t('calendar.status.planned')}
                         </Text>
                       </View>
                     </View>
@@ -399,52 +402,71 @@ export default function CalendarScreen() {
                     <Text style={styles.workoutNotes}>{w.notes}</Text>
                   ) : (
                     <Text style={styles.workoutNotesMuted}>
-                      Inga anteckningar
+                      {t('calendar.meta.notesNone')}
                     </Text>
                   )}
                   <View style={styles.metaRow}>
                     <View style={styles.metaPill}>
-                      <Text style={styles.metaText}>
-                        {w.durationMinutes
-                          ? `${w.durationMinutes} min`
-                          : 'Tid okänd'}
-                      </Text>
-                    </View>
+                        <Text style={styles.metaText}>
+                          {w.durationMinutes
+                            ? `${w.durationMinutes} min`
+                            : t('calendar.meta.durationUnknown')}
+                        </Text>
+                      </View>
                     <View style={styles.metaPill}>
-                      <Text style={styles.metaText}>
-                        {w.exercises?.length ?? 0} övningar
+                     <Text style={styles.metaText}>
+                        {t('calendar.meta.exercises', w.exercises?.length ?? 0)}
                       </Text>
                     </View>
                   </View>
+                  {w.exercises && w.exercises.length > 0 ? (
+                    <View style={styles.exerciseChipRow}>
+                      {w.exercises.slice(0, 3).map((ex) => (
+                        <View key={ex.id} style={styles.exerciseChip}>
+                          <Text style={styles.exerciseChipText}>
+                            {ex.name} · {ex.sets} set
+                          </Text>
+                        </View>
+                      ))}
+                      {w.exercises.length > 3 ? (
+                        <View style={styles.exerciseChip}>
+                          <Text style={styles.exerciseChipText}>
+                            {t('calendar.moreExercises', w.exercises.length - 3)}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
                   {!w.isCompleted && (
                     <View style={styles.actionsRow}>
                       <TouchableOpacity
                         style={[styles.metaPill, styles.startNowButton]}
                         onPress={() => {
                           Haptics.selectionAsync();
-                          router.replace({
+                         router.replace({
                             pathname: '/workout/quick-workout',
                             params: {
                               title: w.title,
                               color: w.color,
                               templateId: w.sourceTemplateId,
+                              plannedId: w.id,
                             },
                           });
                         }}
                         activeOpacity={0.9}
-                        accessibilityLabel="Starta pass nu"
+                        accessibilityLabel={t('calendar.startNowA11y')}
                         accessibilityRole="button"
                       >
-                        <Text style={styles.startNowText}>Starta nu</Text>
+                        <Text style={styles.startNowText}>{t('calendar.startNow')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.metaPill, styles.deleteButton]}
                         onPress={() => handleDelete(w)}
                         activeOpacity={0.9}
-                        accessibilityLabel="Ta bort pass"
+                        accessibilityLabel={t('calendar.deleteA11y')}
                         accessibilityRole="button"
                       >
-                        <Text style={styles.deleteText}>Ta bort</Text>
+                        <Text style={styles.deleteText}>{t('calendar.delete')}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -611,6 +633,25 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 11,
     fontWeight: '600',
+  },
+  exerciseChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  exerciseChip: {
+    borderRadius: 999,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  exerciseChipText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
   },
   statusPill: {
     paddingHorizontal: 10,

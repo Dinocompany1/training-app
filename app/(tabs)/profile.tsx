@@ -1,14 +1,13 @@
 // app/(tabs)/profile.tsx
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Bell, Moon, Target, User, Image as ImageIcon } from 'lucide-react-native';
+import { Target, User, Image as ImageIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
   Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -24,10 +23,12 @@ import { toast } from '../../utils/toast';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
+import { useTranslation } from '../../context/TranslationContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { weeklyGoal, setWeeklyGoal, workouts, addBodyPhoto } = useWorkouts();
+  const { lang, setLanguage, t } = useTranslation();
   const [goalInput, setGoalInput] = useState(String(weeklyGoal));
   const [goalError, setGoalError] = useState('');
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -42,7 +43,7 @@ export default function ProfileScreen() {
     const clean = goalInput.replace(/[^0-9]/g, '');
     const n = Number(clean);
     if (Number.isNaN(n)) {
-      setGoalError('Ange ett heltal mellan 0-14.');
+      setGoalError(t('profile.goalError'));
       setGoalInput(String(weeklyGoal));
       return;
     }
@@ -70,22 +71,53 @@ export default function ProfileScreen() {
                 <User size={30} color="#e5e7eb" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.nameText}>Din profil</Text>
+                <Text style={styles.nameText}>{t('profile.title')}</Text>
                 <Text style={styles.subtitleText}>
-                  Bygg dina mål och låt appen hålla dig ansvarig.
+                  {t('profile.subtitle')}
                 </Text>
+              </View>
+            </View>
+
+            <View style={styles.langRow}>
+              <Text style={styles.langLabel}>{t('profile.language')}</Text>
+              <View style={styles.langButtons}>
+                {[
+                  { key: 'sv', label: t('profile.langSv', 'Svenska') },
+                  { key: 'en', label: t('profile.langEn', 'English') },
+                ].map((item) => {
+                  const active = lang === item.key;
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      style={[
+                        styles.langButton,
+                        active && styles.langButtonActive,
+                      ]}
+                      onPress={() => setLanguage(item.key as 'sv' | 'en')}
+                    >
+                      <Text
+                        style={[
+                          styles.langButtonText,
+                          active && styles.langButtonTextActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
             <View style={styles.headerStatsRow}>
               <View style={styles.headerStatBox}>
-                <Text style={styles.headerStatLabel}>Totalt pass</Text>
+                <Text style={styles.headerStatLabel}>{t('profile.totalWorkouts')}</Text>
                 <Text style={styles.headerStatValue}>{totalWorkouts}</Text>
               </View>
               <View style={styles.headerStatBox}>
-                <Text style={styles.headerStatLabel}>Veckomål</Text>
+                <Text style={styles.headerStatLabel}>{t('profile.weeklyGoal')}</Text>
                 <Text style={styles.headerStatValue}>
-                  {weeklyGoal} / v
+                  {weeklyGoal} / {t('profile.perWeek')}
                 </Text>
               </View>
             </View>
@@ -95,15 +127,14 @@ export default function ProfileScreen() {
           <GlassCard style={styles.card}>
             <View style={styles.cardTitleRow}>
               <Target size={20} color={colors.primary} />
-              <Text style={styles.sectionTitle}>Veckomål</Text>
+              <Text style={styles.sectionTitle}>{t('profile.weeklyCardTitle')}</Text>
             </View>
             <Text style={styles.sectionSub}>
-              Sätt ett realistiskt mål som du kan hålla. Appen använder detta
-              på hemskärmen och i statistiken.
+              {t('profile.weeklyCardSub')}
             </Text>
 
             <View style={styles.goalRow}>
-              <Text style={styles.goalLabel}>Antal pass / vecka</Text>
+              <Text style={styles.goalLabel}>{t('profile.goalLabel')}</Text>
               <View style={styles.goalInputRow}>
                 <TextInput
                   value={goalInput}
@@ -116,18 +147,18 @@ export default function ProfileScreen() {
                   keyboardType="number-pad"
                   style={styles.goalInput}
                   maxLength={2}
-                  accessibilityLabel="Ange veckomål i antal pass"
+                  accessibilityLabel={t('profile.goalA11y')}
                   accessibilityRole="adjustable"
                 />
-                <Text style={styles.goalSuffix}>pass</Text>
+                <Text style={styles.goalSuffix}>{t('profile.goalSuffix')}</Text>
               </View>
             </View>
 
             <Text style={styles.goalHint}>
-              Tips: börja med 2–4 pass / vecka om du vill bygga en hållbar vana.
+              {t('profile.goalHint')}
             </Text>
             <BadgePill
-              label={`Totalt loggat: ${totalWorkouts} pass`}
+              label={t('profile.goalBadge', undefined, totalWorkouts)}
               tone="primary"
               style={{ marginTop: 8, alignSelf: 'flex-start' }}
             />
@@ -138,62 +169,14 @@ export default function ProfileScreen() {
             ) : null}
           </GlassCard>
 
-          {/* INSTÄLLNINGAR */}
-          <GlassCard style={styles.card}>
-            <View style={styles.cardTitleRow}>
-              <Bell size={20} color={colors.accentBlue} />
-              <Text style={styles.sectionTitle}>Inställningar</Text>
-            </View>
-            <Text style={styles.sectionSub}>
-              Finjustera hur appen beter sig. Dessa är lokala inställningar
-              (ingen inloggning ännu).
-            </Text>
-
-            {/* Notiser */}
-            <View style={styles.settingRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Påminnelser</Text>
-                <Text style={styles.settingSub}>
-                  Få små nudges när du börjar halka efter ditt veckomål.
-                </Text>
-              </View>
-              <Switch
-                value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
-                thumbColor={notificationsEnabled ? '#22c55e' : '#111827'}
-                trackColor={{
-                  true: '#22c55e55',
-                  false: '#111827',
-                }}
-              />
-            </View>
-
-            {/* Dark mode (visuellt) */}
-            <View style={styles.settingRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingLabel}>Tema</Text>
-                <Text style={styles.settingSub}>
-                  Appen kör just nu i mörkt läge för maximal fokus och
-                  batterisnålhet.
-                </Text>
-              </View>
-              <View style={styles.themePill}>
-                <Moon size={16} color="#e5e7eb" />
-                <Text style={styles.themePillText}>
-                  {darkMode ? 'Dark mode' : 'Light mode'}
-                </Text>
-              </View>
-            </View>
-          </GlassCard>
-
           {/* KROPPSBILDER */}
           <GlassCard style={styles.card}>
             <View style={styles.cardTitleRow}>
               <ImageIcon size={20} color={colors.accentBlue} />
-              <Text style={styles.sectionTitle}>Kroppsbilder</Text>
+              <Text style={styles.sectionTitle}>{t('profile.bodyPhotosTitle')}</Text>
             </View>
             <Text style={styles.sectionSub}>
-              Följ din visuella progress med bilder och anteckningar.
+              {t('profile.bodyPhotosSub')}
             </Text>
             <View style={styles.photoInputs}>
               {selectedUri ? (
@@ -203,7 +186,7 @@ export default function ProfileScreen() {
                     onPress={async () => {
                       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                       if (!perm.granted) {
-                        Alert.alert('Behörighet krävs', 'Ge åtkomst till bilder för att fortsätta.');
+                        Alert.alert(t('profile.permTitle'), t('profile.permBody'));
                         return;
                       }
                       const res = await ImagePicker.launchImageLibraryAsync({
@@ -212,12 +195,12 @@ export default function ProfileScreen() {
                       });
                       if (!res.canceled && res.assets && res.assets[0]?.uri) {
                         setSelectedUri(res.assets[0].uri);
-                        toast('Bild vald');
+                        toast(t('profile.photoPicked'));
                       }
                     }}
                   >
                     <Text style={styles.pbEmptyButtonText}>
-                      {selectedUri ? 'Byt bild' : 'Lägg till bild'}
+                      {selectedUri ? t('profile.replacePhoto') : t('profile.addPhoto')}
                     </Text>
                   </TouchableOpacity>
                   <View style={styles.photoPreview}>
@@ -226,12 +209,12 @@ export default function ProfileScreen() {
                       style={styles.photoPreviewImage}
                       contentFit="cover"
                     />
-                    <Text style={styles.photoPreviewMeta}>Klart att spara</Text>
+                    <Text style={styles.photoPreviewMeta}>{t('profile.photoReady')}</Text>
                   </View>
                   <TextInput
                     value={photoNote}
                     onChangeText={setPhotoNote}
-                    placeholder="Anteckning (valfritt)"
+                    placeholder={t('profile.photoNotePlaceholder')}
                     placeholderTextColor={colors.textSoft}
                     style={[styles.photoInput, styles.photoNote]}
                   />
@@ -240,7 +223,7 @@ export default function ProfileScreen() {
                       style={[styles.pbEmptyButton, styles.primaryButton]}
                       onPress={() => {
                         if (!selectedUri) {
-                          toast('Välj en bild först');
+                          toast(t('profile.pickFirst'));
                           return;
                         }
                         const photo = {
@@ -252,10 +235,10 @@ export default function ProfileScreen() {
                         addBodyPhoto(photo);
                         setSelectedUri(null);
                         setPhotoNote('');
-                        toast('Bild sparad');
+                        toast(t('profile.photoSaved'));
                       }}
                     >
-                      <Text style={styles.pbEmptyButtonText}>Spara bild</Text>
+                      <Text style={styles.pbEmptyButtonText}>{t('profile.savePhoto')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.pbEmptyButton, styles.secondaryButton]}
@@ -264,7 +247,7 @@ export default function ProfileScreen() {
                         setPhotoNote('');
                       }}
                     >
-                      <Text style={styles.pbEmptyButtonText}>Rensa</Text>
+                      <Text style={styles.pbEmptyButtonText}>{t('profile.clear')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.pbEmptyButton, styles.secondaryButton]}
@@ -273,19 +256,19 @@ export default function ProfileScreen() {
                         router.push('/body-photos');
                       }}
                     >
-                      <Text style={styles.pbEmptyButtonText}>Öppna galleri</Text>
+                      <Text style={styles.pbEmptyButtonText}>{t('profile.openGallery')}</Text>
                     </TouchableOpacity>
                   </View>
                 </>
               ) : (
                 <EmptyState
-                  title="Inga kropps­bilder"
-                  subtitle="Lägg till en bild och se dina sparade i galleriet."
-                  ctaLabel="Välj bild"
+                  title={t('profile.emptyPhotosTitle')}
+                  subtitle={t('profile.emptyPhotosSubtitle')}
+                  ctaLabel={t('profile.emptyPhotosCta')}
                   onPressCta={async () => {
                     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
                     if (!perm.granted) {
-                      Alert.alert('Behörighet krävs', 'Ge åtkomst till bilder för att fortsätta.');
+                      Alert.alert(t('profile.permTitle'), t('profile.permBody'));
                       return;
                     }
                     const res = await ImagePicker.launchImageLibraryAsync({
@@ -294,7 +277,7 @@ export default function ProfileScreen() {
                     });
                     if (!res.canceled && res.assets && res.assets[0]?.uri) {
                       setSelectedUri(res.assets[0].uri);
-                      toast('Bild vald');
+                      toast(t('profile.photoPicked'));
                     }
                   }}
                 />
@@ -308,7 +291,7 @@ export default function ProfileScreen() {
                       router.push('/body-photos');
                     }}
                   >
-                    <Text style={styles.pbEmptyButtonText}>Öppna galleri</Text>
+                    <Text style={styles.pbEmptyButtonText}>{t('profile.openGallery')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -364,6 +347,38 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSoft,
     marginTop: 2,
+  },
+  langRow: {
+    marginTop: 12,
+    gap: 6,
+  },
+  langLabel: {
+    ...typography.caption,
+    color: colors.textSoft,
+  },
+  langButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  langButton: {
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0b1220',
+  },
+  langButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#1e1b4b',
+  },
+  langButtonText: {
+    ...typography.caption,
+    color: colors.textMain,
+  },
+  langButtonTextActive: {
+    color: colors.primary,
+    fontWeight: '800',
   },
   headerStatsRow: {
     flexDirection: 'row',

@@ -1,7 +1,6 @@
 // app/all-exercises.tsx
 import { LinearGradient } from 'expo-linear-gradient';
 import { Dumbbell } from 'lucide-react-native';
-import * as ImagePicker from 'expo-image-picker';
 import React, { useMemo, useState } from 'react';
 import {
   ScrollView,
@@ -11,6 +10,7 @@ import {
   TouchableOpacity,
   View,
   Alert,
+  SafeAreaView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import GlassCard from '../components/ui/GlassCard';
@@ -18,10 +18,14 @@ import EmptyState from '../components/ui/EmptyState';
 import { colors, gradients, typography } from '../constants/theme';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import { useWorkouts } from '../context/WorkoutsContext';
+import { useTranslation } from '../context/TranslationContext';
 
 export default function AllExercisesScreen() {
   const { customExercises, addCustomExercise } = useWorkouts();
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
+  const { t } = useTranslation();
+  const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
+  const translateName = (n: string) => t(`exercises.names.${n}`, n);
   const placeholder =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAZlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////8F6kJ+AAAAIHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyoyXwAAAChJREFUGNNjYGBgZGJmBgYWiJmFlYGRiYGRiZWBgYkB4hkZiRmBgYGRAAAWCwH4kG3QjgAAAABJRU5ErkJggg==';
   const mergedLibrary = useMemo(() => {
@@ -45,89 +49,54 @@ export default function AllExercisesScreen() {
   const groupNames = useMemo(() => mergedLibrary.map((g) => g.group), [mergedLibrary]);
   const [newName, setNewName] = useState('');
   const [newGroup, setNewGroup] = useState(groupNames[0] || '');
-  const [newImage, setNewImage] = useState<string | undefined>(undefined);
   const [showAddForm, setShowAddForm] = useState(false);
-
-  const pickImage = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Behörighet behövs', 'Ge åtkomst till bilder för att välja en bild.');
-      return;
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
-    if (res.canceled) return;
-    const uri = res.assets?.[0]?.uri;
-    if (uri) setNewImage(uri);
-  };
 
   const handlePressExercise = (name: string) => {
     setSelectedExercise((prev) => (prev === name ? null : name));
   };
 
   return (
-    <LinearGradient
-      colors={gradients.appBackground}
-      style={styles.full}
-    >
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={{ paddingBottom: 32 }}
-        showsVerticalScrollIndicator={false}
+    <SafeAreaView style={styles.safe}>
+      <LinearGradient
+        colors={gradients.appBackground}
+        style={styles.full}
       >
-        <Text style={styles.title}>Övningsbibliotek</Text>
-        <Text style={styles.subtitle}>
-          Alla övningar, uppdelade efter muskelgrupp – enkelt och överskådligt.
-        </Text>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={{ paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.title}>{t('library.title')}</Text>
+          <Text style={styles.subtitle}>
+            {t('library.subtitle')}
+          </Text>
 
         <GlassCard style={styles.card}>
           <TouchableOpacity
             style={styles.addToggle}
             onPress={() => setShowAddForm((prev) => !prev)}
             accessibilityRole="button"
-            accessibilityLabel="Öppna formulär för att lägga till övning"
+            accessibilityLabel={t('library.addFormToggleA11y')}
           >
             <Text style={styles.sectionTitle}>
-              {showAddForm ? 'Dölj' : 'Lägg till egen övning'}
+              {showAddForm ? t('library.hideForm') : t('library.showForm')}
             </Text>
             <Text style={styles.sectionSub}>
-              Lägg till övningar med valfri bild och muskelgrupp.
+              {t('library.formInfo')}
             </Text>
           </TouchableOpacity>
 
-          {showAddForm && (
-            <View style={styles.addForm}>
-              <Text style={styles.fieldLabel}>Namn på övning</Text>
-              <TextInput
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="Ex. Vadpress"
-                placeholderTextColor={colors.textSoft}
-                style={styles.input}
-              />
-              <Text style={[styles.fieldLabel, { marginTop: 8 }]}>Bild (valfritt)</Text>
-              <View style={styles.imageRow}>
-                <TouchableOpacity
-                  style={styles.imageButton}
-                  onPress={pickImage}
-                  accessibilityRole="button"
-                  accessibilityLabel="Välj bild från galleriet"
-                >
-                  <Text style={styles.imageButtonText}>
-                    {newImage ? 'Byt bild' : 'Välj bild från galleriet'}
-                  </Text>
-                </TouchableOpacity>
-                {newImage ? (
-                  <Image
-                    source={{ uri: newImage }}
-                    style={styles.previewThumb}
-                    contentFit="cover"
+              {showAddForm && (
+                <View style={styles.addForm}>
+                  <Text style={styles.fieldLabel}>{t('library.nameLabel')}</Text>
+                  <TextInput
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder={t('library.namePlaceholder')}
+                    placeholderTextColor={colors.textSoft}
+                    style={styles.input}
                   />
-                ) : null}
-              </View>
-              <Text style={[styles.fieldLabel, { marginTop: 8 }]}>Muskelgrupp</Text>
+              <Text style={[styles.fieldLabel, { marginTop: 8 }]}>{t('library.groupLabel')}</Text>
               <View style={styles.chipRow}>
                 {groupNames.map((g) => {
                   const active = newGroup === g;
@@ -137,10 +106,10 @@ export default function AllExercisesScreen() {
                       style={[styles.chip, active && styles.chipActive]}
                       onPress={() => setNewGroup(g)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Välj muskelgrupp ${g}`}
+                      accessibilityLabel={t('library.selectGroup', translateGroup(g))}
                     >
                       <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {g}
+                        {translateGroup(g)}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -151,7 +120,7 @@ export default function AllExercisesScreen() {
                 onPress={() => {
                   const trimmed = newName.trim();
                   if (!trimmed) {
-                    Alert.alert('Fel', 'Ange ett namn på övningen.');
+                    Alert.alert(t('library.errorTitle'), t('library.errorName'));
                     return;
                   }
                   const exists = mergedLibrary.some((g) =>
@@ -160,20 +129,18 @@ export default function AllExercisesScreen() {
                     )
                   );
                   if (exists) {
-                    Alert.alert('Redan tillagd', 'Övningen finns redan.');
+                    Alert.alert(t('library.errorExistsTitle'), t('library.errorExistsBody'));
                     return;
                   }
                   addCustomExercise({
                     name: trimmed,
                     muscleGroup: newGroup,
-                    imageUri: newImage || undefined,
                   });
                   setNewName('');
-                  setNewImage(undefined);
-                  Alert.alert('Tillagd', `${trimmed} lades till i ${newGroup}.`);
+                  Alert.alert(t('library.addedTitle'), t('library.addedBody', { name: trimmed, group: newGroup }));
                 }}
               >
-                <Text style={styles.saveButtonText}>Lägg till övning</Text>
+                <Text style={styles.saveButtonText}>{t('library.addCta')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -187,13 +154,13 @@ export default function AllExercisesScreen() {
                 <Dumbbell size={16} color={colors.accentBlue} />
               </View>
               <View>
-                <Text style={styles.groupTitle}>{group.group}</Text>
+                <Text style={styles.groupTitle}>{translateGroup(group.group)}</Text>
                 <View style={styles.groupMetaRow}>
                   <Text style={styles.groupSubtitle}>
-                    {group.exercises.length} övningar
+                    {t('library.metaCount', group.exercises.length)}
                   </Text>
                   <View style={styles.groupPill}>
-                    <Text style={styles.groupPillText}>Upptäck</Text>
+                    <Text style={styles.groupPillText}>{t('library.discover')}</Text>
                   </View>
                 </View>
               </View>
@@ -203,15 +170,15 @@ export default function AllExercisesScreen() {
             <View style={styles.exerciseList}>
               {group.exercises.length === 0 ? (
                 <EmptyState
-                  title="Inga övningar"
-                  subtitle="Lägg till en övning i denna muskelgrupp."
-                  ctaLabel="Lägg till"
+                  title={t('library.emptyTitle')}
+                  subtitle={t('library.emptySubtitle')}
+                  ctaLabel={t('library.emptyCta')}
                   onPressCta={() => setShowAddForm(true)}
                 />
               ) : (
                 group.exercises.map((ex, index) => {
                   const name = typeof ex === 'string' ? ex : ex.name;
-                  const imageUri = typeof ex === 'string' ? undefined : ex.imageUri;
+                  const displayName = translateName(name);
                   const isSelected = selectedExercise === name;
                   const isLast = index === group.exercises.length - 1;
 
@@ -225,15 +192,10 @@ export default function AllExercisesScreen() {
                         !isLast && styles.exerciseRowDivider,
                         isSelected && styles.exerciseRowActive,
                       ]}
-                      accessibilityLabel={`Välj övning ${name}`}
+                      accessibilityLabel={t('library.selectExercise', displayName)}
                       accessibilityRole="button"
                     >
                       <View style={styles.exerciseNameWrapper}>
-                        <Image
-                          source={{ uri: imageUri || placeholder }}
-                          style={styles.exerciseThumb}
-                          contentFit="cover"
-                        />
                         <View style={[styles.exerciseDot, isSelected && styles.exerciseDotActive]} />
                         <Text
                           style={[
@@ -242,12 +204,12 @@ export default function AllExercisesScreen() {
                           ]}
                           accessible={false}
                         >
-                          {name}
+                          {displayName}
                         </Text>
                       </View>
                       {isSelected && (
                         <Text style={styles.exerciseTag}>
-                          Vald
+                          {t('library.selectedTag')}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -260,19 +222,24 @@ export default function AllExercisesScreen() {
 
         {selectedExercise && (
           <View style={styles.footerInfo}>
-            <Text style={styles.footerLabel}>Markerad övning:</Text>
-            <Text style={styles.footerValue}>{selectedExercise}</Text>
+            <Text style={styles.footerLabel}>{t('library.footerSelected')}</Text>
+            <Text style={styles.footerValue}>{translateName(selectedExercise)}</Text>
             <Text style={styles.footerHint}>
-              Du kan använda dessa övningar när du skapar rutiner eller planerar pass.
+              {t('library.footerHint')}
             </Text>
           </View>
         )}
-      </ScrollView>
-    </LinearGradient>
+        </ScrollView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   full: {
     flex: 1,
   },
@@ -467,31 +434,6 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: colors.textMain,
-  },
-  imageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  imageButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexShrink: 1,
-  },
-  imageButtonText: {
-    ...typography.caption,
-    color: '#0b1120',
-    fontWeight: '700',
-  },
-  previewThumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
   },
   saveButton: {
     marginTop: 8,

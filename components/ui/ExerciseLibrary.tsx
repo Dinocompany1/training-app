@@ -1,8 +1,8 @@
 import React from 'react';
 import { Dumbbell } from 'lucide-react-native';
-import { Image } from 'expo-image';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { colors, typography } from '../../constants/theme';
+import { useTranslation } from '../../context/TranslationContext';
 
 type ExerciseGroup = {
   group: string;
@@ -30,11 +30,13 @@ export default function ExerciseLibrary({
   selectedMuscleFor,
   onSelectMuscle,
 }: Props) {
-  const placeholder =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAZlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////8F6kJ+AAAAIHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyoyXwAAAChJREFUGNNjYGBgZGJmBgYWiJmFlYGRiYGRiZWBgYkB4hkZiRmBgYGRAAAWCwH4kG3QjgAAAABJRU5ErkJggg==';
+  const { t } = useTranslation();
+  const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
+  const translateName = (n: string) => t(`exercises.names.${n}`, n);
+
   return (
     <View style={[styles.listBox, style]}>
-      <Text style={styles.sectionLabel}>Tryck för att lägga till eller ta bort övningar.</Text>
+      <Text style={styles.sectionLabel}>{t('library.tapHint', 'Tap to add or remove exercises.')}</Text>
 
       {groups.map((group) => (
         <View key={group.group} style={styles.groupSection}>
@@ -43,15 +45,15 @@ export default function ExerciseLibrary({
               <Dumbbell size={14} color={colors.primary} />
             </View>
             <View>
-              <Text style={styles.groupTitle}>{group.group}</Text>
-              <Text style={styles.groupSubtitle}>{group.exercises.length} övningar</Text>
+              <Text style={styles.groupTitle}>{translateGroup(group.group)}</Text>
+              <Text style={styles.groupSubtitle}>{t('library.metaCount', group.exercises.length)}</Text>
             </View>
           </View>
 
           <View style={styles.groupListCard}>
             {group.exercises.map((ex, index) => {
               const name = typeof ex === 'string' ? ex : ex.name;
-              const imageUri = typeof ex === 'string' ? undefined : ex.imageUri;
+              const displayName = translateName(name);
               const isSelected = selectedNames.includes(name);
               const isLast = index === group.exercises.length - 1;
               const currentMuscle = selectedMuscleFor?.(name);
@@ -66,41 +68,38 @@ export default function ExerciseLibrary({
                     ]}
                     onPress={() => onToggle(name, group.group)}
                     activeOpacity={0.8}
-                    accessibilityLabel={`Välj övning ${name}`}
+                    accessibilityLabel={t('library.selectExercise', displayName)}
                     accessibilityRole="button"
                   >
                     <View style={styles.exerciseNameWrapper}>
                       <View
                         style={[
                           styles.exerciseDot,
-                    isSelected && styles.exerciseDotActive,
-                  ]}
-                />
-                  <Image
-                    source={{ uri: imageUri || placeholder }}
-                    style={styles.exerciseThumb}
-                    contentFit="cover"
-                  />
-                 <Text
-                   style={[
-                     styles.exerciseName,
-                     isSelected && styles.exerciseNameActive,
-                    ]}
-                  >
-                    {name}
-                  </Text>
-                    </View>
-                    {isSelected && (
-                      <View style={styles.exerciseTagPill}>
-                        <Text style={styles.exerciseTag}>Vald</Text>
+                          isSelected && styles.exerciseDotActive,
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.exerciseName,
+                          isSelected && styles.exerciseNameActive,
+                        ]}
+                        accessible={false}
+                      >
+                          {displayName}
+                        </Text>
                       </View>
-                    )}
-                  </TouchableOpacity>
+                      {isSelected && (
+                        <View style={styles.exerciseTagPill}>
+                        <Text style={styles.exerciseTag}>{t('library.selectedTag')}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
 
                   {showMuscleChips && isSelected && muscleGroups.length > 0 && onSelectMuscle && (
                     <View style={styles.muscleRow}>
                       {muscleGroups.map((mg) => {
                         const active = currentMuscle === mg;
+                        const displayGroup = translateGroup(mg);
                         return (
                           <TouchableOpacity
                             key={`${name}-${mg}`}
@@ -109,7 +108,7 @@ export default function ExerciseLibrary({
                               active && styles.muscleChipActive,
                             ]}
                             onPress={() => onSelectMuscle(name, mg)}
-                            accessibilityLabel={`Välj muskelgrupp ${mg}`}
+                            accessibilityLabel={t('library.selectGroup', displayGroup)}
                             accessibilityRole="button"
                           >
                             <Text
@@ -118,7 +117,7 @@ export default function ExerciseLibrary({
                                 active && styles.muscleChipTextActive,
                               ]}
                             >
-                              {mg}
+                              {displayGroup}
                             </Text>
                           </TouchableOpacity>
                         );
@@ -224,14 +223,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
-  },
-  exerciseThumb: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#111827',
-    backgroundColor: colors.backgroundSoft,
   },
   exerciseTagPill: {
     paddingHorizontal: 10,

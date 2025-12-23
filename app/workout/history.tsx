@@ -16,6 +16,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import SkeletonCard from '../../components/ui/SkeletonCard';
 import { colors } from '../../constants/theme';
 import { toast } from '../../utils/toast';
+import { useTranslation } from '../../context/TranslationContext';
 
 function parseDate(dateString: string): Date | null {
   if (!dateString) return null;
@@ -47,6 +48,7 @@ function formatNiceDate(date: Date): string {
 export default function HistoryScreen() {
   const router = useRouter();
   const { workouts, addWorkout, removeWorkout, templates } = useWorkouts();
+  const { t } = useTranslation();
 
   const handleStart = (item: typeof sorted[number]) => {
     Haptics.selectionAsync();
@@ -61,25 +63,25 @@ export default function HistoryScreen() {
   };
 
   const handleDelete = (item: typeof sorted[number]) => {
-    Alert.alert('Ta bort pass', `Vill du ta bort "${item.title}"?`, [
-      { text: 'Avbryt', style: 'cancel' },
+    Alert.alert(t('history.deleteTitle'), t('history.deleteConfirm', item.title), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Ta bort',
+        text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           removeWorkout(item.id);
-          toast('Pass borttaget');
-          Alert.alert('Borttaget', 'Passet togs bort.', [
+          toast(t('history.deletedToast'));
+          Alert.alert(t('history.deletedTitle'), t('history.deletedBody'), [
             {
-              text: 'Ångra',
+              text: t('common.undo'),
               style: 'default',
               onPress: () => {
                 Haptics.selectionAsync();
                 addWorkout(item);
               },
             },
-            { text: 'OK', style: 'default' },
+            { text: t('common.ok'), style: 'default' },
           ]);
         },
       },
@@ -102,8 +104,8 @@ export default function HistoryScreen() {
       : null;
     const durationLabel = item.durationMinutes
       ? `${item.durationMinutes} min`
-      : 'Okänd tid';
-    const statusLabel = item.isCompleted ? 'Klart' : 'Planerat';
+      : t('history.durationUnknown');
+    const statusLabel = item.isCompleted ? t('history.statusDone') : t('history.statusPlanned');
     const statusStyle = item.isCompleted
       ? styles.statusBadgeDone
       : styles.statusBadgePlanned;
@@ -131,7 +133,7 @@ export default function HistoryScreen() {
               <View style={styles.templatePill}>
                 <View style={styles.templateDot} />
                 <Text style={styles.templatePillText}>
-                  {templateName || 'Rutin'}
+                  {templateName || t('history.routine')}
                 </Text>
               </View>
             ) : null}
@@ -141,7 +143,7 @@ export default function HistoryScreen() {
                 {item.notes}
               </Text>
             ) : (
-              <Text style={styles.notesPlaceholder}>Inga anteckningar</Text>
+              <Text style={styles.notesPlaceholder}>{t('history.notesNone')}</Text>
             )}
 
             <View style={styles.badgeRow}>
@@ -157,7 +159,7 @@ export default function HistoryScreen() {
               </View>
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
-                  {item.exercises?.length ?? 0} övningar
+                  {t('history.exerciseCount', item.exercises?.length ?? 0)}
                 </Text>
               </View>
               <View style={styles.badge}>
@@ -168,10 +170,10 @@ export default function HistoryScreen() {
                   style={[styles.badge, styles.startBadge]}
                   onPress={() => handleStart(item)}
                   activeOpacity={0.9}
-                  accessibilityLabel="Kör rutin"
+                  accessibilityLabel={t('history.startRoutineA11y')}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.startBadgeText}>Kör rutin</Text>
+                  <Text style={styles.startBadgeText}>{t('history.startRoutine')}</Text>
                 </TouchableOpacity>
               )}
               {!item.isCompleted && (
@@ -179,22 +181,21 @@ export default function HistoryScreen() {
                   style={[styles.badge, styles.startBadge]}
                   onPress={() => handleStart(item)}
                   activeOpacity={0.9}
-                  accessibilityLabel="Starta pass nu"
+                  accessibilityLabel={t('history.startNowA11y')}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.startBadgeText}>Starta nu</Text>
+                  <Text style={styles.startBadgeText}>{t('history.startNow')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 style={[styles.badge, styles.startBadge]}
                 onPress={() => handleDelete(item)}
                 activeOpacity={0.9}
-                accessibilityLabel="Ta bort pass"
+                accessibilityLabel={t('history.deleteA11y')}
                 accessibilityRole="button"
               >
-                <Text style={styles.startBadgeText}>Ta bort</Text>
+                <Text style={styles.startBadgeText}>{t('common.delete')}</Text>
               </TouchableOpacity>
-              )}
             </View>
           </View>
         </TouchableOpacity>

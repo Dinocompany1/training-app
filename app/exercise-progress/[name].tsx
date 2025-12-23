@@ -13,6 +13,7 @@ import {
 import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { useTranslation } from '../../context/TranslationContext';
 
 interface ExerciseHistoryRow {
   date: string;
@@ -26,6 +27,7 @@ export default function ExerciseProgressDetailScreen() {
   const { name } = useLocalSearchParams<{ name?: string }>();
   const router = useRouter();
   const { workouts } = useWorkouts();
+  const { t } = useTranslation();
 
   const exerciseName = Array.isArray(name) ? name[0] : name;
 
@@ -124,25 +126,24 @@ export default function ExerciseProgressDetailScreen() {
           <TouchableOpacity
             style={styles.backPill}
             onPress={() => router.back()}
-            accessibilityLabel="Tillbaka"
+            accessibilityLabel={t('exerciseDetail.backA11y')}
             accessibilityRole="button"
           >
             <ArrowLeft size={14} color={colors.textSoft} />
-            <Text style={styles.backText}>Tillbaka</Text>
+            <Text style={styles.backText}>{t('exerciseDetail.back')}</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.title}>
-          {exerciseName || 'Övning'}
+          {exerciseName || t('exerciseDetail.unnamed')}
         </Text>
         <Text style={styles.subtitle}>
-          Här ser du din utveckling, dina tyngsta vikter och historik för denna
-          övning.
+          {t('exerciseDetail.subtitle')}
         </Text>
 
         {history.length === 0 ? (
           <Text style={styles.emptyText}>
-            Du har inte loggat den här övningen ännu.
+            {t('exerciseDetail.empty')}
           </Text>
         ) : (
           <>
@@ -164,7 +165,7 @@ export default function ExerciseProgressDetailScreen() {
                   </Text>
                 </View>
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Starkare?</Text>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.stronger')}</Text>
                   <View style={styles.trendRow}>
                     <TrendingUp
                       size={14}
@@ -188,7 +189,7 @@ export default function ExerciseProgressDetailScreen() {
               <View style={styles.datesRow}>
                 <View>
                   <Text style={styles.summaryLabel}>
-                    Första passet
+                    {t('exerciseDetail.firstSession')}
                   </Text>
                   <Text style={styles.summaryDate}>
                     {stats.firstDate}
@@ -196,7 +197,7 @@ export default function ExerciseProgressDetailScreen() {
                 </View>
                 <View>
                   <Text style={styles.summaryLabel}>
-                    Senaste passet
+                    {t('exerciseDetail.latestSession')}
                   </Text>
                   <Text style={styles.summaryDate}>
                     {stats.lastDate}
@@ -209,12 +210,12 @@ export default function ExerciseProgressDetailScreen() {
                   <Trophy size={16} color="#facc15" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.prTitle}>Personligt rekord</Text>
+                  <Text style={styles.prTitle}>{t('exerciseDetail.prTitle')}</Text>
                   <Text style={styles.prText}>
-                    Tyngsta set: {stats.bestWeight} kg
+                    {t('exerciseDetail.prWeight', stats.bestWeight)}
                   </Text>
                   <Text style={styles.prTextSmall}>
-                    Fortsätt logga dina pass för att slå dina rekord oftare.
+                    {t('exerciseDetail.prHint')}
                   </Text>
                 </View>
               </View>
