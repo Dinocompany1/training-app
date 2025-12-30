@@ -151,8 +151,17 @@ const useWorkoutTimer = (startTimestamp: number) => {
 export default function QuickWorkoutScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { addWorkout, updateWorkout, addTemplate, templates, customExercises, workouts } =
-    useWorkouts();
+  const {
+    addWorkout,
+    updateWorkout,
+    addTemplate,
+    templates,
+    customExercises,
+    workouts,
+    forceSave,
+    bodyPhotos,
+    weeklyGoal,
+  } = useWorkouts();
   const params = useLocalSearchParams<{
     title?: string;
     color?: string;
@@ -426,7 +435,7 @@ const defaultTitle =
     ]);
   };
 
-  const saveWorkout = () => {
+  const saveWorkout = async () => {
     if (!title.trim()) {
       Alert.alert(t('common.error'), t('quick.titleError'));
       return;
@@ -482,10 +491,23 @@ const defaultTitle =
           : undefined,
     };
 
+    let nextWorkouts = workouts;
     if (plannedId && workouts.some((w) => w.id === plannedId)) {
       updateWorkout(workout);
+      nextWorkouts = workouts.map((w) => (w.id === plannedId ? workout : w));
     } else {
       addWorkout(workout);
+      nextWorkouts = [...workouts, workout];
+    }
+    // Spara direkt så avslutade pass inte tappas om appen stängs
+    if (forceSave) {
+      await forceSave({
+        workouts: nextWorkouts,
+        templates,
+        bodyPhotos,
+        weeklyGoal,
+        customExercises,
+      });
     }
     clearOngoingQuickWorkout();
 
@@ -916,11 +938,11 @@ const defaultTitle =
                       <Text style={styles.selectedName}>{ex.name}</Text>
                     </View>
                     <TouchableOpacity onPress={() => removeExercise(ex.id)}>
-                      <Text style={styles.removeText}>{t('common.remove')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
+                    <Text style={styles.removeText}>{t('common.remove', 'Ta bort')}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
             </View>
 
             {exercises.length > 0 && (
@@ -932,6 +954,7 @@ const defaultTitle =
                   setShowCustomInput(false);
                 }}
                 variant="green"
+                hideIcon
                 style={styles.confirmButton}
                 accessibilityLabel={t('quick.confirmExercises')}
                 accessibilityRole="button"
@@ -970,7 +993,11 @@ const defaultTitle =
         </ScrollView>
 
         <View style={styles.footer}>
-          <NeonButton title="✅ Avsluta pass" onPress={handleFinish} toastMessage="Avslutar pass" />
+          <NeonButton
+            title={t('quick.finish')}
+            onPress={handleFinish}
+            toastMessage="Avslutar pass"
+          />
           <Text style={styles.finishButtonSub}>{totalSets} set i passet</Text>
         </View>
       </SafeAreaView>

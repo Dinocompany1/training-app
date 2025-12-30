@@ -8,6 +8,7 @@ import {
   Play,
   PlusCircle,
   ListChecks,
+  Flame,
 } from 'lucide-react-native';
 import React from 'react';
 import {
@@ -75,7 +76,7 @@ export default function AddWorkoutScreen() {
           <GlassCard style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.iconCircle}>
-                <Play size={18} color={colors.accentGreen} />
+                <Flame size={18} color={colors.accentGreen} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{t('add.quickTitle')}</Text>

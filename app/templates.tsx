@@ -2,7 +2,7 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Plus, Play, Trash2 } from 'lucide-react-native';
+import { Play, Trash2 } from 'lucide-react-native';
 import React from 'react';
 import {
   Alert,
@@ -138,7 +138,6 @@ export default function TemplatesScreen() {
                     router.push('/routine-builder');
                   }}
                 >
-                  <Plus size={16} color="#0b1120" />
                   <Text style={styles.secondaryText}>{t('templates.newRoutine')}</Text>
                 </TouchableOpacity>
               </View>

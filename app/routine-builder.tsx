@@ -578,6 +578,9 @@ export default function RoutineBuilderScreen() {
               <TouchableOpacity
                 style={[styles.button, styles.confirmButton]}
                 onPress={handleConfirmExercises}
+                activeOpacity={0.9}
+                accessibilityLabel={t('routineBuilder.confirmExercises')}
+                accessibilityRole="button"
               >
                 <Text style={styles.buttonText}>{t('routineBuilder.confirmExercises')}</Text>
               </TouchableOpacity>

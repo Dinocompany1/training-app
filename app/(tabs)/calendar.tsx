@@ -138,16 +138,25 @@ export default function CalendarScreen() {
     return marks;
   }, [workouts, selectedDate]);
 
-  const workoutsForSelectedDay = useMemo(() => {
-    if (!selectedDate) return [];
-    return dedupedWorkouts
-      .filter((w) => {
-        if (w.date !== selectedDate) return false;
-        if (statusFilter === 'DONE') return !!w.isCompleted;
-        if (statusFilter === 'PLANNED') return !w.isCompleted;
-        return true;
-      })
-      .sort((a, b) => a.title.localeCompare(b.title));
+  const listData = useMemo(() => {
+    const base = [...dedupedWorkouts];
+    if (statusFilter === 'DONE') {
+      return base
+        .filter((w) => w.isCompleted)
+        .sort((a, b) => b.date.localeCompare(a.date)); // senaste överst
+    }
+    if (statusFilter === 'PLANNED') {
+      // kommande först, sedan äldsta nedan
+      const upcoming = base
+        .filter((w) => !w.isCompleted)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return upcoming;
+    }
+    // ALL -> visa valt datum om det finns, annars allt (senaste överst)
+    const filtered = selectedDate
+      ? base.filter((w) => w.date === selectedDate)
+      : base;
+    return filtered.sort((a, b) => b.date.localeCompare(a.date));
   }, [dedupedWorkouts, selectedDate, statusFilter]);
 
   const totalWorkouts = workouts.length;
@@ -226,12 +235,10 @@ export default function CalendarScreen() {
       />
       <SafeAreaView style={styles.safe}>
         <FlatList
-          data={workoutsForSelectedDay}
+          data={listData}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.container}
-          ListEmptyComponent={
-            workouts.length === 0 ? renderEmptyState : null
-          }
+          ListEmptyComponent={null}
           ListHeaderComponent={
             <>
               <View style={styles.header}>
@@ -263,6 +270,7 @@ export default function CalendarScreen() {
                   markingType="custom"
                   markedDates={markedDates}
                   onDayPress={handleDayPress}
+                  firstDay={1}
                   disableAllTouchEventsForDisabledDays={true}
                   enableSwipeMonths={true}
                 />
@@ -270,7 +278,11 @@ export default function CalendarScreen() {
 
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
-                  {selectedDate
+                  {statusFilter === 'DONE'
+                    ? t('calendar.filters.done')
+                    : statusFilter === 'PLANNED'
+                    ? t('calendar.filters.planned')
+                    : selectedDate
                     ? t('calendar.listForDay', undefined, selectedDate)
                     : t('calendar.selectDay')}
                 </Text>
@@ -337,7 +349,7 @@ export default function CalendarScreen() {
                   </View>
                 )}
 
-                {selectedDate && workoutsForSelectedDay.length === 0 && (
+                {selectedDate && listData.length === 0 && (
                   <View style={styles.emptyBox}>
                     <Text style={styles.emptyText}>
                       {t('calendar.emptyDay')}
@@ -347,8 +359,20 @@ export default function CalendarScreen() {
               </View>
             </>
           }
-          renderItem={({ item: w }) => (
-            <GlassCard key={w.id} style={[styles.workoutItem, styles.glowCard]}>
+          renderItem={({ item: w }) => {
+            const exerciseCount =
+              Array.isArray(w.exercises) && typeof w.exercises.length === 'number'
+                ? w.exercises.length
+                : 0;
+            const durationLabel = w.durationMinutes
+              ? `${w.durationMinutes} min`
+              : t('calendar.meta.durationUnknown');
+            const templateName = w.sourceTemplateId
+              ? templates.find((t) => t.id === w.sourceTemplateId)?.name
+              : null;
+
+            return (
+              <GlassCard key={w.id} style={[styles.workoutItem, styles.glowCard]}>
               <View style={styles.timelineRow}>
                 <View style={styles.timelineBar} />
                 <View
@@ -358,32 +382,9 @@ export default function CalendarScreen() {
                   ]}
                 />
                 <View style={styles.timelineContent}>
-                  {w.sourceTemplateId ? (
-                    <View style={styles.templatePill}>
-                      <View
-                        style={[
-                          styles.templateDot,
-                          {
-                            backgroundColor:
-                              templates.find((t) => t.id === w.sourceTemplateId)?.color ||
-                              w.color ||
-                              colors.primary,
-                          },
-                        ]}
-                      />
-                      <Text style={styles.templatePillText}>
-                        {templates.find((t) => t.id === w.sourceTemplateId)?.name || t('calendar.routine')}
-                      </Text>
-                    </View>
-                  ) : null}
                   <View style={styles.timelineHeader}>
                     <Text style={styles.workoutTitle}>{w.title}</Text>
                     <View style={styles.headerPills}>
-                      {w.sourceTemplateId && (
-                        <View style={styles.templatePill}>
-                          <Text style={styles.templatePillText}>{t('calendar.routine')}</Text>
-                        </View>
-                      )}
                       <View
                         style={[
                           styles.statusPill,
@@ -392,10 +393,42 @@ export default function CalendarScreen() {
                             : styles.statusPillPlanned,
                         ]}
                       >
-                        <Text style={styles.statusText}>
-                          {w.isCompleted ? t('calendar.status.done') : t('calendar.status.planned')}
+                        <Text
+                          style={[
+                            styles.statusText,
+                            w.isCompleted
+                              ? styles.statusTextDone
+                              : styles.statusTextPlanned,
+                          ]}
+                        >
+                          {w.isCompleted
+                            ? t('calendar.status.done')
+                            : t('calendar.status.planned')}
                         </Text>
                       </View>
+                      <View style={styles.datePill}>
+                        <Text style={styles.dateText}>
+                          {w.date}
+                        </Text>
+                      </View>
+                      {templateName && (
+                        <View style={styles.templatePill}>
+                          <View
+                            style={[
+                              styles.templateDot,
+                              {
+                                backgroundColor:
+                                  templates.find((t) => t.id === w.sourceTemplateId)?.color ||
+                                  w.color ||
+                                  colors.primary,
+                              },
+                            ]}
+                          />
+                          <Text style={styles.templatePillText}>
+                            {templateName}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                   {w.notes ? (
@@ -407,16 +440,7 @@ export default function CalendarScreen() {
                   )}
                   <View style={styles.metaRow}>
                     <View style={styles.metaPill}>
-                        <Text style={styles.metaText}>
-                          {w.durationMinutes
-                            ? `${w.durationMinutes} min`
-                            : t('calendar.meta.durationUnknown')}
-                        </Text>
-                      </View>
-                    <View style={styles.metaPill}>
-                     <Text style={styles.metaText}>
-                        {t('calendar.meta.exercises', w.exercises?.length ?? 0)}
-                      </Text>
+                      <Text style={styles.metaText}>{durationLabel}</Text>
                     </View>
                   </View>
                   {w.exercises && w.exercises.length > 0 ? (
@@ -424,7 +448,7 @@ export default function CalendarScreen() {
                       {w.exercises.slice(0, 3).map((ex) => (
                         <View key={ex.id} style={styles.exerciseChip}>
                           <Text style={styles.exerciseChipText}>
-                            {ex.name} · {ex.sets} set
+                            {(ex.name || t('calendar.meta.unknownExercise'))} · {ex.sets} set
                           </Text>
                         </View>
                       ))}
@@ -460,6 +484,21 @@ export default function CalendarScreen() {
                         <Text style={styles.startNowText}>{t('calendar.startNow')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
+                        style={[styles.metaPill, styles.editButton]}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          router.push({
+                            pathname: '/schedule-workout',
+                            params: { id: w.id },
+                          });
+                        }}
+                        activeOpacity={0.9}
+                        accessibilityLabel={t('calendar.editA11y', w.title)}
+                        accessibilityRole="button"
+                      >
+                        <Text style={styles.editText}>{t('calendar.edit')}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={[styles.metaPill, styles.deleteButton]}
                         onPress={() => handleDelete(w)}
                         activeOpacity={0.9}
@@ -470,10 +509,30 @@ export default function CalendarScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
+                  {w.isCompleted && (
+                    <View style={styles.actionsRow}>
+                      <TouchableOpacity
+                        style={[styles.metaPill, styles.viewButton]}
+                        onPress={() => {
+                          Haptics.selectionAsync();
+                          router.push({
+                            pathname: '/workout/[id]',
+                            params: { id: w.id },
+                          });
+                        }}
+                        accessibilityLabel={t('calendar.viewWorkoutA11y')}
+                        accessibilityRole="button"
+                        activeOpacity={0.9}
+                      >
+                        <Text style={styles.viewText}>{t('calendar.viewWorkout')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               </View>
-            </GlassCard>
-          )}
+              </GlassCard>
+            );
+          }}
           ListFooterComponent={<View style={{ height: 40 }} />}
           showsVerticalScrollIndicator={false}
         />
@@ -510,12 +569,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   row: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 10,
+    marginBottom: 12,
+    width: '100%',
   },
   smallCard: {
     flex: 1,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   smallLabel: {
     ...typography.micro,
@@ -598,6 +658,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
+    marginBottom: 10,
   },
   workoutTitle: {
     color: colors.textMain,
@@ -658,9 +719,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
+    minWidth: 72,
+    alignItems: 'center',
   },
   statusPillDone: {
-    backgroundColor: colors.primary,
+    backgroundColor: '#0b1220',
     borderColor: colors.primary,
   },
   statusPillPlanned: {
@@ -671,6 +734,13 @@ const styles = StyleSheet.create({
     color: '#0b1120',
     fontSize: 11,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  statusTextPlanned: {
+    color: colors.primary,
+  },
+  statusTextDone: {
+    color: colors.primary,
   },
   headerPills: {
     flexDirection: 'row',
@@ -693,6 +763,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  datePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0b1220',
+  },
+  dateText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   templateDot: {
     width: 8,
     height: 8,
@@ -700,20 +783,54 @@ const styles = StyleSheet.create({
   },
   actionsRow: {
     flexDirection: 'row',
-    marginTop: 6,
+    marginTop: 8,
+    gap: 10,
+    flexWrap: 'wrap',
+    paddingTop: 2,
   },
   startNowButton: {
     borderColor: colors.accentGreen,
     backgroundColor: '#0f172a',
+    marginRight: 0,
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   startNowText: {
     color: colors.accentGreen,
     fontSize: 11,
     fontWeight: '700',
   },
+  viewButton: {
+    borderColor: colors.primary,
+    backgroundColor: '#0b1220',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   deleteButton: {
     borderColor: '#ef4444',
     backgroundColor: '#0f172a',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editButton: {
+    borderColor: colors.primary,
+    backgroundColor: '#0b1024',
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
   },
   deleteText: {
     color: '#ef4444',

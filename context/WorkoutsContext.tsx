@@ -1,5 +1,6 @@
 // context/WorkoutsContext.tsx
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
   createContext,
   ReactNode,
@@ -10,6 +11,7 @@ import React, {
   useState,
 } from 'react';
 import { toast } from '../utils/toast';
+import { supabase } from '../utils/supabaseClient';
 
 export interface PerformedSet {
   reps: string;
@@ -74,6 +76,8 @@ interface WorkoutsContextValue {
   addWorkout: (workout: Workout) => void;
   updateWorkout: (workout: Workout) => void;
   removeWorkout: (id: string) => void;
+  forceSave?: (override?: PersistedData['data']) => Promise<void>;
+  forceSave?: () => Promise<void>;
 
   // Sparade rutiner
   templates: Template[];
@@ -89,6 +93,10 @@ interface WorkoutsContextValue {
   // Egna övningar
   customExercises: CustomExercise[];
   addCustomExercise: (ex: CustomExercise) => void;
+  removeCustomExercise: (name: string, muscleGroup: string) => void;
+  customGroups: string[];
+  addCustomGroup: (name: string) => void;
+  removeCustomGroup: (name: string) => void;
 
   // Veckomål
   weeklyGoal: number;
@@ -105,6 +113,7 @@ const WorkoutsContext = createContext<WorkoutsContextValue | undefined>(
 const STORAGE_PATH = `${FileSystem.documentDirectory}workouts-data.json`;
 const BACKUP_DIR = `${FileSystem.documentDirectory}backups`;
 const DATA_VERSION = 1;
+const ASYNC_KEY = 'workouts-data';
 type PersistedData = {
   version: number;
   data: {
@@ -113,6 +122,7 @@ type PersistedData = {
     bodyPhotos: BodyPhoto[];
     weeklyGoal: number;
     customExercises?: CustomExercise[];
+    customGroups?: string[];
   };
 };
 type StorageAdapter = {
@@ -127,6 +137,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   const [bodyPhotos, setBodyPhotos] = useState<BodyPhoto[]>([]);
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [customExercises, setCustomExercises] = useState<CustomExercise[]>([]);
+  const [customGroups, setCustomGroups] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -180,10 +191,35 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
       if (exists) return prev;
       return [...prev, ex];
     });
+    setCustomGroups((prev) =>
+      prev.includes(ex.muscleGroup) ? prev : [...prev, ex.muscleGroup]
+    );
+  };
+  const removeCustomExercise = (name: string, muscleGroup: string) => {
+    setCustomExercises((prev) =>
+      prev.filter(
+        (p) =>
+          !(
+            p.name.toLowerCase() === name.toLowerCase() &&
+            p.muscleGroup.toLowerCase() === muscleGroup.toLowerCase()
+          )
+      )
+    );
+  };
+  const addCustomGroup = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCustomGroups((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+  };
+  const removeCustomGroup = (name: string) => {
+    setCustomGroups((prev) => prev.filter((g) => g !== name));
+    setCustomExercises((prev) =>
+      prev.filter((ex) => ex.muscleGroup !== name)
+    );
   };
 
   // ===== Persistensadapter (FileSystem) =====
-  const storageAdapter: StorageAdapter = useMemo(
+  const fileStorageAdapter: StorageAdapter = useMemo(
     () => ({
       load: async () => {
         try {
@@ -249,6 +285,84 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
     []
   );
 
+const asyncStorageAdapter: StorageAdapter = useMemo(
+    () => ({
+      load: async () => {
+        try {
+          const raw = await AsyncStorage.getItem(ASYNC_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw) as PersistedData | any;
+          if (!parsed) return null;
+          if (parsed.data) return parsed as PersistedData;
+          return {
+            version: 0,
+            data: {
+              workouts: parsed.workouts || [],
+              templates: parsed.templates || [],
+              bodyPhotos: parsed.bodyPhotos || [],
+              weeklyGoal: parsed.weeklyGoal ?? 3,
+              customExercises: parsed.customExercises || [],
+              customGroups: parsed.customGroups || [],
+            },
+          };
+        } catch (err) {
+          console.warn('AsyncStorage load fail', err);
+          return null;
+        }
+      },
+      save: async (payload: PersistedData) => {
+        try {
+          await AsyncStorage.setItem(ASYNC_KEY, JSON.stringify(payload));
+        } catch (err) {
+          console.warn('AsyncStorage save fail', err);
+          throw err;
+        }
+      },
+      exportData: async (payload: PersistedData) =>
+        JSON.stringify(payload.data, null, 2),
+    }),
+    []
+  );
+
+  const supabaseStorageAdapter: StorageAdapter | null = useMemo(() => {
+    if (!supabase) return null;
+    return {
+      load: async () => {
+        const { data, error } = await supabase
+          .from('app_state')
+          .select('version,data')
+          .eq('id', 'default')
+          .maybeSingle();
+        if (error) {
+          console.warn('Supabase load error', error);
+          return null;
+        }
+        if (!data) return null;
+        return {
+          version: data.version ?? 0,
+          data: data.data as PersistedData['data'],
+        };
+      },
+      save: async (payload: PersistedData) => {
+        const { error } = await supabase
+          .from('app_state')
+          .upsert({
+            id: 'default',
+            version: payload.version,
+            data: payload.data,
+          });
+        if (error) throw error;
+      },
+      exportData: async (payload: PersistedData) =>
+        JSON.stringify(payload.data, null, 2),
+    };
+  }, []);
+
+  // primär adapter = AsyncStorage (snabb). sekundär = fil för backup. tredje = supabase om den finns.
+  const primaryAdapter: StorageAdapter = asyncStorageAdapter;
+  const secondaryAdapter: StorageAdapter | null = fileStorageAdapter;
+  const cloudAdapter: StorageAdapter | null = supabaseStorageAdapter;
+
   const migrateData = (data: PersistedData['data']): PersistedData['data'] => {
     const normalizeMuscle = (mg?: string) => {
       if (!mg) return 'Övrigt';
@@ -288,7 +402,13 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
       templates: cleanTemplates,
       bodyPhotos: data.bodyPhotos || [],
       weeklyGoal: data.weeklyGoal ?? 3,
-      customExercises: data.customExercises || [],
+      customExercises: sanitizeExercises(data.customExercises),
+      customGroups: Array.from(
+        new Set([
+          ...(data.customGroups || []),
+          ...sanitizeExercises(data.customExercises).map((ex) => ex.muscleGroup),
+        ])
+      ),
     };
   };
 
@@ -296,11 +416,32 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
-      const persisted = await storageAdapter.load();
+      let persisted = null;
+      try {
+        persisted = await primaryAdapter.load();
+      } catch (err) {
+        console.warn('Load primary failed', err);
+      }
+      if (!persisted && secondaryAdapter) {
+        try {
+          persisted = await secondaryAdapter.load();
+        } catch (err) {
+          console.warn('Load secondary failed', err);
+        }
+      }
+      if (!persisted && cloudAdapter) {
+        try {
+          persisted = await cloudAdapter.load();
+        } catch (err) {
+          console.warn('Load cloud failed', err);
+        }
+      }
+
       if (!persisted) {
         if (isMounted) setLoaded(true);
         return;
       }
+
       try {
         const migrated = migrateData(persisted.data);
         setWorkouts(migrated.workouts);
@@ -308,12 +449,20 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
         setBodyPhotos(migrated.bodyPhotos);
         setWeeklyGoal(migrated.weeklyGoal);
         setCustomExercises(migrated.customExercises || []);
+        setCustomGroups(migrated.customGroups || []);
         // skriv tillbaka migrerat innehåll så filen är ren inför framtida laddningar
         const payload: PersistedData = {
           version: DATA_VERSION,
           data: migrated,
         };
-        await storageAdapter.save(payload);
+        const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
+        for (const ad of adapters) {
+          try {
+            await ad.save(payload);
+          } catch (err) {
+            console.warn('Could not save migrated to adapter', err);
+          }
+        }
       } catch (err) {
         console.warn('Kunde inte migrera träningsdata', err);
         toast('Data kunde inte läsas (korrupt?).');
@@ -325,7 +474,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
     return () => {
       isMounted = false;
     };
-  }, [storageAdapter]);
+  }, [primaryAdapter, secondaryAdapter]);
 
   // Spara
   useEffect(() => {
@@ -340,9 +489,12 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
         try {
           const payload: PersistedData = {
             version: DATA_VERSION,
-            data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises },
+            data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
           };
-          await storageAdapter.save(payload);
+          const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
+          for (const ad of adapters) {
+            await ad.save(payload);
+          }
         } catch (err) {
           console.warn('Kunde inte spara träningsdata', err);
           toast('Kunde inte spara data');
@@ -356,14 +508,30 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
         clearTimeout(saveTimeout.current);
       }
     };
-  }, [workouts, templates, bodyPhotos, weeklyGoal, storageAdapter, loaded]);
+  }, [workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups, primaryAdapter, secondaryAdapter, loaded]);
 
   const exportData = async () => {
     const payload: PersistedData = {
       version: DATA_VERSION,
-      data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises },
+      data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
     };
-    return storageAdapter.exportData(payload);
+    return primaryAdapter.exportData(payload);
+  };
+
+  const forceSave = async (override?: PersistedData['data']) => {
+    const payload: PersistedData = {
+      version: DATA_VERSION,
+      data:
+        override ?? { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
+    };
+    try {
+      const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
+      for (const ad of adapters) {
+        await ad.save(payload);
+      }
+    } catch (err) {
+      console.warn('Force save failed', err);
+    }
   };
 
   const value: WorkoutsContextValue = {
@@ -371,6 +539,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
     addWorkout,
     updateWorkout,
     removeWorkout,
+    forceSave,
     templates,
     addTemplate,
     updateTemplate,
@@ -380,6 +549,10 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
     removeBodyPhoto,
     customExercises,
     addCustomExercise,
+    removeCustomExercise,
+    customGroups,
+    addCustomGroup,
+    removeCustomGroup,
     weeklyGoal,
     setWeeklyGoal,
     exportData,

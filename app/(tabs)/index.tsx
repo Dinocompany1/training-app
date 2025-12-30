@@ -273,7 +273,7 @@ export default function HomeScreen() {
               </Text>
               <View style={styles.heroBadges}>
                 <View style={styles.heroBadge}>
-                  <Flame size={14} color={colors.accentPink} />
+                  <Flame size={14} color="#f97316" />
                   <Text style={styles.heroBadgeText}>
                     {t('home.heroStreak', undefined, { days: streak })}
                   </Text>
@@ -307,7 +307,7 @@ export default function HomeScreen() {
         <GlassCard style={styles.streakCard} elevated={false}>
           <View style={styles.streakRow}>
             <View style={styles.streakBadge}>
-              <Flame size={16} color="#fb923c" />
+              <Flame size={16} color="#f97316" />
               <Text style={styles.streakBadgeText}>{streak} dagar i rad</Text>
             </View>
             <View>
@@ -894,6 +894,22 @@ const styles = StyleSheet.create({
   rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  streakPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: '#0b1220',
+    borderColor: '#1f2937',
+    minWidth: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  streakPillText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '800',
   },
   iconCircle: {
     width: 34,

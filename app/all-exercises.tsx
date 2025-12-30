@@ -21,13 +21,20 @@ import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 
 export default function AllExercisesScreen() {
-  const { customExercises, addCustomExercise } = useWorkouts();
+  const {
+    customExercises,
+    addCustomExercise,
+    customGroups,
+    addCustomGroup,
+    removeCustomGroup,
+  } = useWorkouts();
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const { t } = useTranslation();
   const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
   const translateName = (n: string) => t(`exercises.names.${n}`, n);
   const placeholder =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAZlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////8F6kJ+AAAAIHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyoyXwAAAChJREFUGNNjYGBgZGJmBgYWiJmFlYGRiYGRiZWBgYkB4hkZiRmBgYGRAAAWCwH4kG3QjgAAAABJRU5ErkJggg==';
+
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({
       ...g,
@@ -44,12 +51,42 @@ export default function AllExercisesScreen() {
         });
       }
     });
+    customGroups.forEach((g) => {
+      if (!base.find((b) => b.group === g)) {
+        base.push({ group: g, exercises: [] });
+      }
+    });
     return base;
-  }, [customExercises]);
-  const groupNames = useMemo(() => mergedLibrary.map((g) => g.group), [mergedLibrary]);
+  }, [customExercises, customGroups]);
+  const groupNames = useMemo(
+    () => Array.from(new Set([...mergedLibrary.map((g) => g.group)])),
+    [mergedLibrary]
+  );
   const [newName, setNewName] = useState('');
-  const [newGroup, setNewGroup] = useState(groupNames[0] || '');
+  const [newGroup, setNewGroup] = useState('');
+  const [customGroup, setCustomGroup] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [groupError, setGroupError] = useState('');
+  const [exerciseError, setExerciseError] = useState('');
+
+  // Om vald grupp tas bort, rensa valet
+  React.useEffect(() => {
+    if (newGroup && !groupNames.includes(newGroup)) {
+      setNewGroup('');
+    }
+  }, [groupNames, newGroup]);
+
+  const handleRemoveGroup = (name: string) => {
+    removeCustomGroup(name);
+    setNewGroup((prev) => {
+      if (prev === name) {
+        const fallback =
+          mergedLibrary.find((g) => g.group !== name)?.group || '';
+        return fallback;
+      }
+      return prev;
+    });
+  };
 
   const handlePressExercise = (name: string) => {
     setSelectedExercise((prev) => (prev === name ? null : name));
@@ -88,63 +125,182 @@ export default function AllExercisesScreen() {
 
               {showAddForm && (
                 <View style={styles.addForm}>
-                  <Text style={styles.fieldLabel}>{t('library.nameLabel')}</Text>
-                  <TextInput
-                    value={newName}
-                    onChangeText={setNewName}
-                    placeholder={t('library.namePlaceholder')}
-                    placeholderTextColor={colors.textSoft}
-                    style={styles.input}
-                  />
-              <Text style={[styles.fieldLabel, { marginTop: 8 }]}>{t('library.groupLabel')}</Text>
-              <View style={styles.chipRow}>
-                {groupNames.map((g) => {
-                  const active = newGroup === g;
-                  return (
+                  <View style={styles.formBlock}>
+                    <Text style={styles.sectionTitle}>{t('library.groupLabel')}</Text>
+                    <Text style={styles.sectionSub}>
+                      {t('library.formGroupHint', 'Välj eller lägg till muskelgrupp')}
+                    </Text>
+                    <View style={styles.chipRow}>
+                      {groupNames.map((g) => {
+                        return (
+                          <View
+                            key={g}
+                            style={styles.chip}
+                            pointerEvents="none"
+                          >
+                            <Text style={styles.chipText}>
+                              {translateGroup(g)}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                    <TextInput
+                      value={customGroup}
+                      onChangeText={setCustomGroup}
+                      placeholder={t('library.customGroupPlaceholder', 'Ny muskelgrupp')}
+                      placeholderTextColor={colors.textSoft}
+                      style={[styles.input, { marginTop: 8 }]}
+                    />
                     <TouchableOpacity
-                      key={g}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => setNewGroup(g)}
+                      style={styles.groupAddButton}
+                      onPress={() => {
+                        const trimmed = customGroup.trim();
+                        if (!trimmed) {
+                          setGroupError(t('library.errorGroup'));
+                          return;
+                        }
+                        setGroupError('');
+                        setCustomGroup('');
+                        addCustomGroup(trimmed);
+                      }}
                       accessibilityRole="button"
-                      accessibilityLabel={t('library.selectGroup', translateGroup(g))}
+                      accessibilityLabel={t('library.addGroupCta')}
                     >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {translateGroup(g)}
-                      </Text>
+                      <Text style={styles.groupAddButtonText}>{t('library.addGroupCta')}</Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </View>
-              <TouchableOpacity
-                style={[styles.saveButton, { marginTop: 10 }]}
-                onPress={() => {
-                  const trimmed = newName.trim();
-                  if (!trimmed) {
-                    Alert.alert(t('library.errorTitle'), t('library.errorName'));
-                    return;
-                  }
-                  const exists = mergedLibrary.some((g) =>
-                    g.exercises.some((ex) =>
-                      (typeof ex === 'string' ? ex === trimmed : ex.name === trimmed)
-                    )
-                  );
-                  if (exists) {
-                    Alert.alert(t('library.errorExistsTitle'), t('library.errorExistsBody'));
-                    return;
-                  }
-                  addCustomExercise({
-                    name: trimmed,
-                    muscleGroup: newGroup,
-                  });
-                  setNewName('');
-                  Alert.alert(t('library.addedTitle'), t('library.addedBody', { name: trimmed, group: newGroup }));
-                }}
-              >
-                <Text style={styles.saveButtonText}>{t('library.addCta')}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </GlassCard>
+                    {groupError ? <Text style={styles.formHint}>{groupError}</Text> : null}
+                    {customGroups.length > 0 && (
+                      <View style={styles.groupRemoveRow}>
+                        {customGroups.map((g) => (
+                          <TouchableOpacity
+                            key={g}
+                            style={styles.groupRemoveChip}
+                            onPress={() => handleRemoveGroup(g)}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('library.removeGroup', g)}
+                          >
+                            <Text style={styles.groupRemoveText}>{g}  ×</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={styles.formBlock}>
+                    <Text style={styles.sectionTitle}>{t('library.nameLabel')}</Text>
+                    <Text style={styles.sectionSub}>
+                      {t('library.formExerciseHint', 'Lägg till övning i vald grupp')}
+                    </Text>
+                    <Text style={[styles.fieldLabel, { marginTop: 2 }]}>
+                      {t('library.groupLabel')}
+                    </Text>
+                    <View style={styles.chipRow}>
+                      {groupNames.map((g) => {
+                        const active = newGroup === g;
+                        return (
+                          <TouchableOpacity
+                            key={`exercise-${g}`}
+                            style={[styles.chip, active && styles.chipActive]}
+                            onPress={() => {
+                              setNewGroup(g);
+                              setCustomGroup('');
+                              setGroupError('');
+                            }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('library.selectGroup', translateGroup(g))}
+                          >
+                            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                              {translateGroup(g)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <TextInput
+                      value={newName}
+                      onChangeText={(val) => {
+                        setNewName(val);
+                        setExerciseError('');
+                      }}
+                      placeholder={t('library.namePlaceholder')}
+                      placeholderTextColor={colors.textSoft}
+                      style={styles.input}
+                    />
+                    {exerciseError ? (
+                      <Text style={styles.formHint}>{exerciseError}</Text>
+                    ) : null}
+                    {groupError && !exerciseError ? (
+                      <Text style={styles.formHint}>{groupError}</Text>
+                    ) : null}
+                    <TouchableOpacity
+                      style={[
+                        styles.saveButton,
+                        {
+                          marginTop: 10,
+                          opacity:
+                            newName.trim().length === 0 ||
+                            (!newGroup && customGroup.trim().length === 0)
+                              ? 0.6
+                              : 1,
+                        },
+                      ]}
+                      disabled={
+                        newName.trim().length === 0 ||
+                        (!newGroup && customGroup.trim().length === 0)
+                      }
+                      onPress={() => {
+                        const trimmed = newName.trim();
+                        if (!trimmed) {
+                          setExerciseError(t('library.errorName'));
+                          return;
+                        }
+                        const exists = mergedLibrary.some((g) =>
+                          g.exercises.some((ex) =>
+                            (typeof ex === 'string' ? ex === trimmed : ex.name === trimmed)
+                          )
+                        );
+                        if (exists) {
+                          setExerciseError(t('library.errorExistsBody'));
+                          return;
+                        }
+                        const targetGroup =
+                          customGroup.trim().length > 0 ? customGroup.trim() : newGroup;
+                        if (!targetGroup) {
+                          setExerciseError(t('library.errorGroup'));
+                          return;
+                        }
+                        setGroupError('');
+                        setExerciseError('');
+                        addCustomExercise({
+                          name: trimmed,
+                          muscleGroup: targetGroup,
+                        });
+                        setNewName('');
+                        setCustomGroup('');
+                        if (!groupNames.includes(targetGroup)) {
+                          setNewGroup(targetGroup);
+                        }
+                        const bodyTemplate = t(
+                          'library.addedBody',
+                          undefined,
+                          { name: trimmed, group: targetGroup }
+                        );
+                        const bodyText =
+                          typeof bodyTemplate === 'string'
+                            ? bodyTemplate
+                            : `${trimmed} lades till i ${targetGroup}.`;
+                        Alert.alert(t('library.addedTitle'), bodyText);
+                      }}
+                    >
+                      <Text style={styles.saveButtonText}>{t('library.addCta')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </GlassCard>
 
         {mergedLibrary.map((group) => (
           <GlassCard key={group.group} style={styles.card}>
@@ -157,11 +313,8 @@ export default function AllExercisesScreen() {
                 <Text style={styles.groupTitle}>{translateGroup(group.group)}</Text>
                 <View style={styles.groupMetaRow}>
                   <Text style={styles.groupSubtitle}>
-                    {t('library.metaCount', group.exercises.length)}
+                    {t('library.metaCount', undefined, group.exercises.length)}
                   </Text>
-                  <View style={styles.groupPill}>
-                    <Text style={styles.groupPillText}>{t('library.discover')}</Text>
-                  </View>
                 </View>
               </View>
             </View>
@@ -435,6 +588,20 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: colors.textMain,
   },
+  groupAddButton: {
+    marginTop: 8,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+  },
+  groupAddButtonText: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+  },
   saveButton: {
     marginTop: 8,
     borderRadius: 10,
@@ -447,6 +614,25 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
+  groupRemoveRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  groupRemoveChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#ef4444',
+    backgroundColor: '#2f1212',
+  },
+  groupRemoveText: {
+    ...typography.micro,
+    color: '#fca5a5',
+    fontWeight: '700',
+  },
   addToggle: {
     paddingVertical: 4,
   },
@@ -456,5 +642,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#111827',
     gap: 6,
+  },
+  formBlock: {
+    gap: 6,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#111827',
+    marginVertical: 10,
+  },
+  formHint: {
+    ...typography.micro,
+    color: '#fca5a5',
   },
 });

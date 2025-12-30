@@ -1,7 +1,7 @@
 // app/exercise-progress/[name].tsx
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, TrendingUp, Trophy } from 'lucide-react-native';
+import { ArrowLeft, TrendingUp } from 'lucide-react-native';
 import React, { useMemo } from 'react';
 import {
   ScrollView,
@@ -10,18 +10,19 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Svg, { Polyline, Circle } from 'react-native-svg';
 import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 
-interface ExerciseHistoryRow {
+type SessionRow = {
   date: string;
   sets: number;
-  reps: string;
-  weight: number;
-  volume: number;
-}
+  totalReps: number;
+  totalVolume: number;
+  bestWeight: number;
+};
 
 export default function ExerciseProgressDetailScreen() {
   const { name } = useLocalSearchParams<{ name?: string }>();
@@ -31,15 +32,26 @@ export default function ExerciseProgressDetailScreen() {
 
   const exerciseName = Array.isArray(name) ? name[0] : name;
 
-  const history: ExerciseHistoryRow[] = useMemo(() => {
+  const sessions: SessionRow[] = useMemo(() => {
     if (!exerciseName) return [];
 
-    const rows: ExerciseHistoryRow[] = [];
+    const rows: SessionRow[] = [];
 
-    workouts.forEach((workout) => {
-      (workout.exercises || [])
-        .filter((ex) => ex.name === exerciseName)
-        .forEach((ex) => {
+    workouts
+      .filter((w) => w.isCompleted)
+      .forEach((workout) => {
+        const exercises = (workout.exercises || []).filter(
+          (ex) => ex.name === exerciseName
+        );
+
+        if (exercises.length === 0) return;
+
+        let sets = 0;
+        let totalReps = 0;
+        let totalVolume = 0;
+        let bestWeight = 0;
+
+        exercises.forEach((ex) => {
           const performed =
             ex.performedSets && ex.performedSets.length > 0
               ? ex.performedSets
@@ -51,18 +63,22 @@ export default function ExerciseProgressDetailScreen() {
           performed.forEach((set) => {
             const repsNum = Number(set.reps) || 0;
             const weightNum = set.weight || 0;
-            rows.push({
-              date: workout.date,
-              sets: 1,
-              reps: set.reps,
-              weight: weightNum,
-              volume: repsNum * weightNum,
-            });
+            sets += 1;
+            totalReps += repsNum;
+            totalVolume += repsNum * weightNum;
+            bestWeight = Math.max(bestWeight, weightNum);
           });
         });
-    });
 
-    // sortera i datumordning
+        rows.push({
+          date: workout.date,
+          sets,
+          totalReps,
+          totalVolume,
+          bestWeight,
+        });
+      });
+
     rows.sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
@@ -71,45 +87,63 @@ export default function ExerciseProgressDetailScreen() {
   }, [workouts, exerciseName]);
 
   const stats = useMemo(() => {
-    if (history.length === 0) {
+    if (sessions.length === 0) {
       return {
         sessions: 0,
         bestWeight: 0,
-        bestVolume: 0,
         firstDate: null as string | null,
         lastDate: null as string | null,
         trend: 0,
+        totalSets: 0,
+        totalReps: 0,
+        totalVolume: 0,
       };
     }
 
-    const sessions = history.length;
-    const bestWeight = Math.max(...history.map((h) => h.weight));
-    const bestVolume = Math.max(...history.map((h) => h.volume));
+    const bestWeight = Math.max(...sessions.map((h) => h.bestWeight));
+    const totalSets = sessions.reduce((acc, h) => acc + h.sets, 0);
+    const totalReps = sessions.reduce((acc, h) => acc + h.totalReps, 0);
+    const totalVolume = sessions.reduce((acc, h) => acc + h.totalVolume, 0);
 
-    const firstDate = history[0].date;
-    const lastDate = history[history.length - 1].date;
+    const firstDate = sessions[0].date;
+    const lastDate = sessions[sessions.length - 1].date;
 
     // enkel trend: jämför senaste vikt med första
-    const firstWeight = history[0].weight || 0;
-    const lastWeight = history[history.length - 1].weight || 0;
+    const firstWeight = sessions[0].bestWeight || 0;
+    const lastWeight = sessions[sessions.length - 1].bestWeight || 0;
     const trend =
       firstWeight > 0
         ? Math.round(((lastWeight - firstWeight) / firstWeight) * 100)
         : 0;
 
     return {
-      sessions,
+      sessions: sessions.length,
       bestWeight,
-      bestVolume,
       firstDate,
       lastDate,
       trend,
+      totalSets,
+      totalReps,
+      totalVolume,
     };
-  }, [history]);
+  }, [sessions]);
 
-  const maxWeight = history.length
-    ? Math.max(...history.map((h) => h.weight || 0))
+  const maxWeight = sessions.length
+    ? Math.max(...sessions.map((h) => h.bestWeight || 0))
     : 0;
+
+  const sparkPoints = useMemo(() => {
+    if (sessions.length === 0 || maxWeight === 0) return [];
+    const len = sessions.length;
+    return sessions.map((s, idx) => {
+      const x = (idx / Math.max(1, len - 1)) * 100;
+      const y = 100 - (s.bestWeight / maxWeight) * 100;
+      return { x, y, weight: s.bestWeight, date: s.date };
+    });
+  }, [sessions, maxWeight]);
+
+  const firstDateLabel = stats.firstDate || '–';
+  const lastDateLabel = stats.lastDate || '–';
 
   return (
     <LinearGradient
@@ -141,7 +175,7 @@ export default function ExerciseProgressDetailScreen() {
           {t('exerciseDetail.subtitle')}
         </Text>
 
-        {history.length === 0 ? (
+        {sessions.length === 0 ? (
           <Text style={styles.emptyText}>
             {t('exerciseDetail.empty')}
           </Text>
@@ -149,20 +183,11 @@ export default function ExerciseProgressDetailScreen() {
           <>
             {/* Översiktskort */}
             <GlassCard style={styles.card}>
-              <View style={styles.summaryRow}>
+              <View style={styles.summaryGrid}>
                 <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>Antal pass</Text>
-                  <Text style={styles.summaryValue}>
-                    {stats.sessions}
-                  </Text>
-                </View>
-                <View style={styles.summaryItem}>
-                  <Text style={styles.summaryLabel}>
-                    Tyngsta vikt
-                  </Text>
-                  <Text style={styles.summaryValue}>
-                    {stats.bestWeight} kg
-                  </Text>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.sessions')}</Text>
+                  <Text style={styles.summaryValue}>{stats.sessions}</Text>
+                  <Text style={styles.summaryHint}>{t('exerciseDetail.latestSession')} {lastDateLabel}</Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryLabel}>{t('exerciseDetail.stronger')}</Text>
@@ -178,97 +203,93 @@ export default function ExerciseProgressDetailScreen() {
                       }
                     />
                     <Text style={styles.summaryValueSmall}>
-                      {stats.trend > 0
-                        ? `+${stats.trend}%`
-                        : `${stats.trend}%`}
+                      {stats.trend > 0 ? `+${stats.trend}%` : `${stats.trend}%`}
                     </Text>
                   </View>
+                  <Text style={styles.summaryHint}>
+                    {t('exerciseDetail.firstSession')} {firstDateLabel}
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.datesRow}>
-                <View>
-                  <Text style={styles.summaryLabel}>
-                    {t('exerciseDetail.firstSession')}
-                  </Text>
-                  <Text style={styles.summaryDate}>
-                    {stats.firstDate}
-                  </Text>
+                <View style={styles.kpiBox}>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.sets')}</Text>
+                  <Text style={styles.summaryValue}>{stats.totalSets}</Text>
                 </View>
-                <View>
-                  <Text style={styles.summaryLabel}>
-                    {t('exerciseDetail.latestSession')}
-                  </Text>
-                  <Text style={styles.summaryDate}>
-                    {stats.lastDate}
-                  </Text>
+                <View style={styles.kpiBox}>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.reps')}</Text>
+                  <Text style={styles.summaryValue}>{stats.totalReps}</Text>
+                </View>
+                <View style={styles.kpiBox}>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.volume')}</Text>
+                  <Text style={styles.summaryValue}>{Math.round(stats.totalVolume)}</Text>
+                </View>
+                <View style={styles.kpiBox}>
+                  <Text style={styles.summaryLabel}>{t('exerciseDetail.bestWeight')}</Text>
+                  <Text style={styles.summaryValue}>{stats.bestWeight} kg</Text>
                 </View>
               </View>
 
-              <View style={styles.prRow}>
-                <View style={styles.prIconCircle}>
-                  <Trophy size={16} color="#facc15" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.prTitle}>{t('exerciseDetail.prTitle')}</Text>
-                  <Text style={styles.prText}>
-                    {t('exerciseDetail.prWeight', stats.bestWeight)}
-                  </Text>
-                  <Text style={styles.prTextSmall}>
-                    {t('exerciseDetail.prHint')}
-                  </Text>
-                </View>
-              </View>
             </GlassCard>
 
-            {/* Pseudo-graf: vikter över tid */}
+            {/* Sparkline vikttrend */}
             <GlassCard style={styles.card}>
-              <Text style={styles.cardTitle}>Vikt över tid</Text>
+              <Text style={styles.cardTitle}>{t('exerciseDetail.weightTrendTitle')}</Text>
               <Text style={styles.cardText}>
-                Varje stapel visar tyngsta setet per pass.
+                {t('exerciseDetail.weightTrendSub')}
               </Text>
 
-              <View style={styles.graphContainer}>
-                {history.map((h, index) => {
-                  const ratio =
-                    maxWeight > 0 ? h.weight / maxWeight : 0;
-                  const height = Math.max(10, ratio * 70); // px
-
-                  return (
-                    <View
-                      key={index}
-                      style={styles.graphItem}
-                    >
-                      <View
-                        style={[
-                          styles.graphBar,
-                          { height },
-                        ]}
-                      />
-                      <Text style={styles.graphWeight}>
-                        {h.weight > 0 ? `${h.weight}` : '–'}
-                      </Text>
-                      <Text style={styles.graphDate}>
-                        {h.date.slice(5)}
-                      </Text>
-                    </View>
-                  );
-                })}
+              <View style={styles.sparkWrapper}>
+                <Svg height="140" width="100%">
+                  {sparkPoints.length > 1 && (
+                    <Polyline
+                      points={sparkPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                      fill="none"
+                      stroke={colors.accentPurple}
+                      strokeWidth={2}
+                      strokeLinejoin="round"
+                    />
+                  )}
+                  {sparkPoints.map((p, idx) => (
+                    <Circle
+                      key={idx}
+                      cx={p.x}
+                      cy={p.y}
+                      r={3.2}
+                      fill={colors.accentPurple}
+                    />
+                  ))}
+                </Svg>
+                <View style={styles.sparkLabels}>
+                  <Text style={styles.sparkLabel}>
+                    {t('exerciseDetail.firstSession')} {firstDateLabel}
+                  </Text>
+                  <Text style={styles.sparkLabel}>
+                    {t('exerciseDetail.latestSession')} {lastDateLabel}
+                  </Text>
+                </View>
               </View>
             </GlassCard>
 
             {/* Detaljerad historik */}
             <GlassCard style={styles.card}>
-              <Text style={styles.cardTitle}>Historik</Text>
+              <Text style={styles.cardTitle}>{t('exerciseDetail.historyTitle')}</Text>
               <Text style={styles.cardText}>
-                Alla pass där du har loggat denna övning.
+                {t('exerciseDetail.historySubtitle')}
               </Text>
 
-              {history.map((h, index) => (
+              {[...sessions]
+                .slice()
+                .sort(
+                  (a, b) =>
+                    new Date(b.date).getTime() - new Date(a.date).getTime()
+                )
+                .map((h, index) => (
                 <View
                   key={`${h.date}-${index}`}
                   style={styles.historyRow}
-                  accessibilityLabel={`Datum ${h.date}. ${h.sets} set, ${h.reps} reps, ${h.weight} kilo. Volym ${Math.round(h.volume)}.`}
+                  accessibilityLabel={`Datum ${h.date}. ${h.sets} set, ${h.totalReps} reps, ${h.bestWeight} kilo. Volym ${Math.round(h.totalVolume)}.`}
                   accessibilityRole="text"
                 >
                   <View style={{ flex: 1 }}>
@@ -276,15 +297,15 @@ export default function ExerciseProgressDetailScreen() {
                       {h.date}
                     </Text>
                     <Text style={styles.historyText}>
-                      {h.sets} set × {h.reps} reps
+                      {h.sets} set × {h.totalReps} reps
                     </Text>
                   </View>
                   <View style={styles.historyRight}>
                     <Text style={styles.historyWeight}>
-                      {h.weight} kg
+                      {h.bestWeight} kg
                     </Text>
                     <Text style={styles.historyVolume}>
-                      Volym: {Math.round(h.volume)}
+                      Volym: {Math.round(h.totalVolume)}
                     </Text>
                   </View>
                 </View>
@@ -343,10 +364,9 @@ const styles = StyleSheet.create({
   card: {
     marginTop: 10,
   },
-
-  summaryRow: {
+  summaryGrid: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   summaryItem: {
     flex: 1,
@@ -373,6 +393,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginLeft: 4,
   },
+  summaryHint: {
+    color: colors.textSoft,
+    fontSize: 11,
+    marginTop: 4,
+  },
   trendRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -381,44 +406,18 @@ const styles = StyleSheet.create({
 
   datesRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  summaryDate: {
-    color: colors.textMain,
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  prRow: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
     marginTop: 12,
   },
-  prIconCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
+  kpiBox: {
+    flex: 1,
+    minWidth: '45%',
     backgroundColor: '#020617',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 12,
+    padding: 10,
     borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  prTitle: {
-    color: colors.textMain,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  prText: {
-    color: colors.textSoft,
-    fontSize: 12,
-  },
-  prTextSmall: {
-    color: colors.textSoft,
-    fontSize: 11,
-    marginTop: 2,
+    borderColor: '#111827',
   },
 
   cardTitle: {
@@ -432,36 +431,22 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  graphContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-    marginTop: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
+  sparkWrapper: {
+    marginTop: 12,
+    backgroundColor: '#020617',
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#111827',
-    backgroundColor: '#020617',
-    paddingHorizontal: 6,
+    padding: 10,
   },
-  graphItem: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    flex: 1,
+  sparkLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
   },
-  graphBar: {
-    width: '60%',
-    borderRadius: 999,
-    backgroundColor: colors.accentBlue,
-  },
-  graphWeight: {
-    color: colors.textMain,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  graphDate: {
+  sparkLabel: {
     color: colors.textSoft,
-    fontSize: 9,
+    fontSize: 11,
   },
 
   historyRow: {

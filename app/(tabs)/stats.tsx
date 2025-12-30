@@ -249,9 +249,7 @@ export default function StatsScreen() {
     }, 0);
   }, [periodFiltered]);
 
-  const [topSort, setTopSort] = useState<'sessions' | 'volume' | 'weight'>(
-    'sessions'
-  );
+  const [topSort, setTopSort] = useState<'sessions' | 'sets' | 'reps' | 'volume' | 'weight'>('sessions');
 
   const topExercises = useMemo(() => {
     type TopEntry = {
@@ -262,6 +260,8 @@ export default function StatsScreen() {
       lastCompleted: boolean;
       totalVolume: number;
       lastDelta?: number | null;
+      totalSets: number;
+      totalReps: number;
     };
 
     const map = new Map<string, TopEntry>();
@@ -277,6 +277,8 @@ export default function StatsScreen() {
             lastCompleted: !!w.isCompleted,
             totalVolume: 0,
             lastDelta: null,
+            totalSets: 0,
+            totalReps: 0,
           });
         }
         const entry = map.get(ex.name)!;
@@ -295,6 +297,11 @@ export default function StatsScreen() {
         const exerciseMax = Math.max(parseWeightValue(ex.weight), setMax);
         entry.bestWeight = Math.max(entry.bestWeight, exerciseMax);
         entry.totalVolume += setVolume;
+        entry.totalSets += ex.sets || sets.length || 0;
+        entry.totalReps += sets.reduce((acc, s) => {
+          const repsNum = parseRepsValue(String(s.reps));
+          return acc + repsNum;
+        }, 0);
 
         if (new Date(w.date) > new Date(entry.lastDate)) {
           entry.lastDelta =
@@ -310,6 +317,8 @@ export default function StatsScreen() {
     const list = Array.from(map.values());
     list.sort((a, b) => {
       if (topSort === 'sessions') return b.sessions - a.sessions;
+      if (topSort === 'sets') return b.totalSets - a.totalSets;
+      if (topSort === 'reps') return b.totalReps - a.totalReps;
       if (topSort === 'volume') return b.totalVolume - a.totalVolume;
       return b.bestWeight - a.bestWeight;
     });
@@ -354,17 +363,35 @@ export default function StatsScreen() {
   const muscleBreakdown = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; count: number; volume: number; sessions: number }
+      {
+        name: string;
+        count: number;
+        volume: number;
+        sessions: number;
+        lastDate: string | null;
+        exerciseCount: number;
+        setCount: number;
+      }
     >();
     periodFiltered.forEach((w) => {
       (w.exercises || []).forEach((ex) => {
         const key = normalizeMuscleLabel(ex.muscleGroup);
         if (!map.has(key)) {
-          map.set(key, { name: key, count: 0, volume: 0, sessions: 0 });
+          map.set(key, {
+            name: key,
+            count: 0,
+            volume: 0,
+            sessions: 0,
+            lastDate: null,
+            exerciseCount: 0,
+            setCount: 0,
+          });
         }
         const entry = map.get(key)!;
         entry.count += 1;
+        entry.exerciseCount += 1;
         const sets = ex.performedSets || [];
+        entry.setCount += sets.length || ex.sets || 0;
         const vol = sets.reduce((acc, s) => {
           const repsNum = parseRepsValue(String(s.reps));
           const wt = parseWeightValue(s.weight);
@@ -372,6 +399,9 @@ export default function StatsScreen() {
         }, 0);
         entry.volume += vol;
         entry.sessions += w.isCompleted ? 1 : 0;
+        if (!entry.lastDate || w.date > entry.lastDate) {
+          entry.lastDate = w.date;
+        }
       });
     });
     const entries = Array.from(map.values());
@@ -422,16 +452,22 @@ export default function StatsScreen() {
       });
     });
 
-    const pbList = Array.from(map.values()).map((pb) => {
-      const pbDate = new Date(pb.date);
-      const diffDays =
-        (todayOnly.getTime() - pbDate.getTime()) / (1000 * 60 * 60 * 24);
-      return {
-        ...pb,
-        delta: pb.prevBest > 0 ? pb.weight - pb.prevBest : null,
-        isRecent: diffDays <= 30,
-      };
-    });
+    const pbList = Array.from(map.values())
+      .map((pb) => {
+        const pbDate = new Date(pb.date);
+        const diffDays =
+          (todayOnly.getTime() - pbDate.getTime()) / (1000 * 60 * 60 * 24);
+        const delta = pb.weight - (pb.prevBest ?? 0);
+        const isPB = pb.weight > (pb.prevBest ?? 0) && pb.weight > 0;
+        return {
+          ...pb,
+          delta: isPB ? delta : null,
+          isRecent: diffDays <= 30,
+          isPB,
+        };
+      })
+      // Visa bara riktiga PB (måste slå ett tidigare värde eller första registrering >0)
+      .filter((pb) => pb.isPB);
 
     return pbList
       .sort((a, b) => {
@@ -463,11 +499,25 @@ export default function StatsScreen() {
               last: formatShortDate(item.lastDate),
             })}
           </Text>
+          <View style={styles.topTags}>
+            <View style={styles.topTag}>
+              <Text style={styles.topTagText}>{t('stats.muscleSortSessions', 'Pass')}: {item.sessions}</Text>
+            </View>
+            <View style={styles.topTag}>
+              <Text style={styles.topTagText}>{t('stats.topSets', 'Set')}: {item.totalSets}</Text>
+            </View>
+            <View style={styles.topTag}>
+              <Text style={styles.topTagText}>{t('stats.topReps', 'Reps')}: {item.totalReps}</Text>
+            </View>
+            <View style={styles.topTag}>
+              <Text style={styles.topTagText}>{t('stats.topVolume', undefined, Math.round(item.totalVolume))}</Text>
+            </View>
+          </View>
         </View>
-          <View style={styles.topExerciseBadge}>
-            <Text style={styles.topExerciseBadgeText}>
-              {item.bestWeight > 0 ? `${item.bestWeight} kg` : '–'}
-            </Text>
+         <View style={styles.topExerciseBadge}>
+           <Text style={styles.topExerciseBadgeText}>
+             {item.bestWeight > 0 ? `${item.bestWeight} kg` : '–'}
+           </Text>
             <View style={styles.statusIconCircle}>
             {item.lastCompleted ? (
               <CheckCircle2 size={14} color={colors.accentGreen} />
@@ -507,6 +557,7 @@ export default function StatsScreen() {
       const volPct = muscleBreakdown.totalVolume
         ? Math.round((item.volume / muscleBreakdown.totalVolume) * 100)
         : 0;
+      const last = item.lastDate ? formatShortDate(item.lastDate) : t('stats.muscleNoDate', '–');
       return (
         <TouchableOpacity
           style={styles.muscleRow}
@@ -520,34 +571,61 @@ export default function StatsScreen() {
           accessibilityRole="button"
           accessibilityLabel={t('stats.viewExercisesFor', undefined, item.name)}
         >
-        <View style={styles.muscleLeft}>
-          <View style={[styles.muscleDot, { backgroundColor: colors.primary }]} />
-          <View>
-            <Text style={styles.muscleName}>{item.name}</Text>
-            <Text style={styles.muscleValue}>
+          <View style={styles.muscleLeft}>
+            <View style={[styles.muscleDot, { backgroundColor: colors.primary }]} />
+            <View>
+              <Text style={styles.muscleName}>{item.name}</Text>
+              <Text style={styles.muscleValue}>
                 {t('stats.muscleMeta', undefined, {
                   sessions: item.sessions,
                   volume: Math.round(item.volume),
                 })}
-            </Text>
+              </Text>
+              <Text style={styles.muscleSub}>
+                {t('stats.muscleLast', 'Senast tränad')}: {last}
+              </Text>
+              <View style={styles.muscleTags}>
+                <View style={styles.tag}>
+                  <Text style={styles.tagText}>
+                    {t('stats.muscleSessionsTag', 'Pass')}: {item.sessions}
+                  </Text>
+                </View>
+                <View style={styles.tag}>
+                  <Text style={styles.tagText}>
+                    {t('stats.muscleVolumeTag', 'Volym')}: {Math.round(item.volume)}
+                  </Text>
+                </View>
+                <View style={styles.tag}>
+                  <Text style={styles.tagText}>
+                    {t('stats.muscleExercisesTag', 'Övningar')}: {item.exerciseCount}
+                  </Text>
+                </View>
+                <View style={styles.tag}>
+                  <Text style={styles.tagText}>
+                    {t('stats.muscleSetsTag', 'Set')}: {item.setCount}
+                  </Text>
+                </View>
+              </View>
+            </View>
           </View>
-        </View>
-        <View style={styles.muscleRight}>
-          <Text style={styles.musclePct}>{pct}%</Text>
+          <View style={styles.muscleRight}>
+            <Text style={styles.musclePct}>{volPct}%</Text>
             <View style={styles.muscleBarBg}>
               <View
                 style={[
                   styles.muscleBarFill,
-                  { width: `${Math.min(100, pct)}%` },
+                  { width: `${Math.min(100, volPct)}%` },
                 ]}
               />
             </View>
-            <Text style={styles.muscleSubPct}>{t('stats.muscleSubPct', undefined, volPct)}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  },
-    [muscleBreakdown.total, muscleBreakdown.totalVolume, router]
+            <Text style={styles.muscleSubPct}>
+              {t('stats.muscleSessions', undefined, item.sessions)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [muscleBreakdown.total, muscleBreakdown.totalVolume, router, t]
   );
 
   return (
@@ -568,13 +646,16 @@ export default function StatsScreen() {
         {/* Periodfilter */}
         <View style={styles.filterRow}>
         {(['7d', '30d', 'all', 'custom'] as const).map((p) => {
-          const active = period === p.key;
+          const active = period === p;
           return (
             <BadgePill
               key={p}
               label={t(`stats.filters.${p}`)}
               tone={active ? 'primary' : 'neutral'}
-              style={styles.filterChip}
+              style={[
+                styles.filterChip,
+                active && styles.filterChipActive,
+              ]}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPeriod(p);
@@ -694,10 +775,20 @@ export default function StatsScreen() {
                 <Trophy size={18} color="#facc15" />
               </View>
               <View>
-                <Text style={styles.cardTitle}>{t('stats.pbTitle', 'PB & highlights')}</Text>
-                <Text style={styles.cardText}>
-                  {t('stats.pbSubtitle', 'Dina senaste tyngsta lyft i perioden.')}
-                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push('/pb-list');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('stats.pbTitle', 'PB')}
+                >
+                  <Text style={styles.cardTitle}>{t('stats.pbTitle', 'PB')}</Text>
+                  <Text style={styles.cardText}>
+                    {t('stats.pbSubtitle', 'Dina senaste personbästa i perioden.')}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -782,6 +873,38 @@ export default function StatsScreen() {
           )}
         </GlassCard>
 
+        {/* TRÄNINGSFREKVENS */}
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => {
+            Haptics.selectionAsync();
+            router.push('/training-frequency');
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t('stats.freqTitle', 'Träningsfrekvens')}
+        >
+          <GlassCard style={styles.card} elevated={false}>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardHeaderLeft}>
+                <View style={styles.iconCircle}>
+                  <Activity size={18} color={colors.accentBlue} />
+                </View>
+                <View>
+                  <Text style={styles.cardTitle}>{t('stats.freqTitle', 'Träningsfrekvens')}</Text>
+                  <Text style={styles.cardText}>
+                    {t('stats.freqSubtitle', 'Se hur ofta och hur mycket du tränar en övning.')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.cardCtaRow}>
+              <View style={styles.cardChip}>
+                <Text style={styles.cardChipText}>{t('stats.progressShowAll', 'Visa')}</Text>
+              </View>
+            </View>
+          </GlassCard>
+        </TouchableOpacity>
+
         {/* ÖVNINGS-PROGRESS LINK */}
         <GlassCard style={styles.card} elevated={false}>
           <View style={styles.cardHeaderRow}>
@@ -846,167 +969,6 @@ export default function StatsScreen() {
               </TouchableOpacity>
             ) : null}
           </View>
-        </GlassCard>
-
-        {/* TOPP-ÖVNINGAR */}
-        <GlassCard style={styles.card} elevated={false}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.cardHeaderLeft}>
-              <View style={styles.iconCircle}>
-                <TrendingUp size={18} color={colors.accentGreen} />
-              </View>
-              <View>
-                <Text style={styles.cardTitle}>
-                  {t('stats.topTitle', 'Toppövningar')} ({t(`stats.filters.${period}`)})
-                </Text>
-                <Text style={styles.cardText}>
-                  {t('stats.topSubtitle', 'Mest körda övningarna i perioden – tryck för detalj.')}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.filterRow}>
-              {[
-                { key: 'sessions', label: t('stats.muscleSortSessions', 'Pass') },
-                { key: 'volume', label: t('stats.muscleSortVolume', 'Volym') },
-                { key: 'weight', label: t('stats.muscleSortWeight', 'Vikt') },
-              ].map((opt) => {
-                const active = topSort === opt.key;
-                return (
-                  <TouchableOpacity
-                    key={opt.key}
-                    style={[
-                      styles.topSortChip,
-                      active && styles.topSortChipActive,
-                    ]}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setTopSort(opt.key as typeof topSort);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Sortera toppövningar på ${opt.label}`}
-                  >
-                    <Text
-                      style={[
-                        styles.topSortText,
-                        active && styles.topSortTextActive,
-                      ]}
-                    >
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-
-          {topExercises.length === 0 ? (
-            completedWorkouts.length === 0 ? (
-              <>
-                <SkeletonCard height={60} />
-                <SkeletonCard height={60} />
-              </>
-            ) : (
-              <Text style={styles.emptyText}>
-                {t('stats.topEmpty', 'Inga loggade övningar i vald period.')}
-              </Text>
-            )
-          ) : (
-            <FlatList
-              data={topExercises}
-              keyExtractor={(item) => item.name}
-              renderItem={renderTopExercise}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
-              accessible
-              accessibilityRole="list"
-              accessibilityLabel={t('stats.topListLabel', 'Toppövningar')}
-            />
-          )}
-        </GlassCard>
-
-        {/* MUSKELGRUPPER */}
-        <GlassCard style={styles.card} elevated={false}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.cardHeaderLeft}>
-              <View style={styles.iconCircle}>
-                <Activity size={18} color={colors.accentGreen} />
-              </View>
-              <View>
-                <Text style={styles.cardTitle}>{t('stats.muscleTitle', 'Muskelgrupper')}</Text>
-                <Text style={styles.cardText}>
-                  {t('stats.muscleSubtitle', 'Fördelning av loggade övningar per muskelgrupp.')}
-                </Text>
-              </View>
-            </View>
-          </View>
-          <View style={styles.filterRow}>
-            {[
-              { key: 'percentage', label: t('stats.muscleSortPercentage', 'Andel') },
-              { key: 'volume', label: t('stats.muscleSortVolume', 'Volym') },
-              { key: 'sessions', label: t('stats.muscleSortSessions', 'Pass') },
-            ].map((opt) => {
-              const active = muscleSort === opt.key;
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[
-                    styles.topSortChip,
-                    active && styles.topSortChipActive,
-                  ]}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    setMuscleSort(opt.key as typeof muscleSort);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Sortera muskelgrupper på ${opt.label}`}
-                >
-                  <Text
-                    style={[
-                      styles.topSortText,
-                      active && styles.topSortTextActive,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {muscleBreakdown.total === 0 ? (
-            completedWorkouts.length === 0 ? (
-              <>
-                <SkeletonCard height={60} />
-                <SkeletonCard height={60} />
-              </>
-            ) : (
-              <Text style={styles.emptyText}>
-                {t('stats.muscleEmpty', 'Inga loggade övningar ännu.')}
-              </Text>
-            )
-          ) : (
-            <FlatList
-              data={[...muscleBreakdown.entries].sort((a, b) => {
-                if (muscleSort === 'percentage') {
-                  const aPct = muscleBreakdown.total
-                    ? a.count / muscleBreakdown.total
-                    : 0;
-                  const bPct = muscleBreakdown.total
-                    ? b.count / muscleBreakdown.total
-                    : 0;
-                  return bPct - aPct;
-                }
-                if (muscleSort === 'volume') return b.volume - a.volume;
-                return b.sessions - a.sessions;
-              })}
-              keyExtractor={(item) => item.name}
-              renderItem={renderMuscleRow}
-              scrollEnabled={false}
-              ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
-              accessible
-              accessibilityRole="list"
-              accessibilityLabel={t('stats.muscleTitle', 'Muskelgrupper')}
-            />
-          )}
         </GlassCard>
 
         </ScrollView>
@@ -1168,6 +1130,24 @@ const styles = StyleSheet.create({
   card: {
     marginTop: 10,
   },
+  cardCtaRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  cardChip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.primarySoft,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  cardChipText: {
+    ...typography.caption,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
   cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1319,16 +1299,18 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   filterChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    backgroundColor: '#0b1220',
+    minWidth: 70,
+    alignItems: 'center',
   },
   filterChipActive: {
-    borderColor: colors.accentGreen,
-    backgroundColor: '#1b0f32',
+    borderColor: colors.primary,
+    backgroundColor: '#120a2a',
   },
   filterText: {
     ...typography.caption,
@@ -1514,6 +1496,25 @@ const styles = StyleSheet.create({
     color: colors.accentBlue,
     fontWeight: '700',
   },
+  topTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  topTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0b1220',
+  },
+  topTagText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
   muscleRow: {
     paddingVertical: 8,
     borderTopWidth: 1,
@@ -1541,6 +1542,11 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: colors.textSoft,
   },
+  muscleSub: {
+    ...typography.micro,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
   muscleRight: {
     alignItems: 'flex-end',
     gap: 4,
@@ -1553,6 +1559,25 @@ const styles = StyleSheet.create({
   muscleSubPct: {
     ...typography.micro,
     color: colors.textSoft,
+  },
+  muscleTags: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
+    flexWrap: 'wrap',
+  },
+  tag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#0b1220',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  tagText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
   },
   muscleBarBg: {
     height: 8,

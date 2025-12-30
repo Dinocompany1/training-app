@@ -419,8 +419,8 @@ export default function WorkoutDetailScreen() {
                             style={styles.performedInput}
                             value={String(s.weight)}
                             maxLength={5}
-                            onChangeText={(t) => {
-                              const cleaned = t.replace(/[^0-9.,-]/g, '').replace(',', '.');
+                            onChangeText={(text) => {
+                              const cleaned = text.replace(/[^0-9.,-]/g, '').replace(',', '.');
                               const num = parseFloat(cleaned);
                               if (Number.isNaN(num) || num < 0) {
                                 setDetailError(t('workoutDetail.weightNonNegative'));
@@ -450,35 +450,19 @@ export default function WorkoutDetailScreen() {
                           <TouchableOpacity
                             onPress={() => {
                               Haptics.selectionAsync();
-                              setEditedExercises((prev) =>
-                                prev.map((item) =>
-                                  item.id === ex.id
-                                    ? {
-                                        ...item,
-                                        performedSets: item.performedSets?.map(
-                                          (ps, pIdx) =>
-                                            pIdx === idx ? { ...ps, done: !ps.done } : ps
-                                        ),
-                                      }
-                                    : item
-                                )
-                              );
+                              setDetailError('');
+                              handleSave();
                             }}
                             style={[
                               styles.setButton,
-                              s.done && styles.setButtonDone,
-                              { paddingHorizontal: 8, paddingVertical: 6 },
+                              { paddingHorizontal: 10, paddingVertical: 8 },
                             ]}
                             activeOpacity={0.9}
-                            accessibilityLabel={
-                              s.done
-                                ? t('workoutDetail.setToggleOn')
-                                : t('workoutDetail.setToggleOff')
-                            }
+                            accessibilityLabel={t('common.save')}
                             accessibilityRole="button"
                           >
-                            <Text style={s.done ? styles.setButtonTextDone : styles.setButtonText}>
-                              {s.done ? t('workoutDetail.setDone') : t('workoutDetail.setMark')}
+                            <Text style={styles.setButtonText}>
+                              {t('common.save', 'Spara')}
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -748,6 +732,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  setButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setButtonDone: {
+    backgroundColor: colors.accentGreen,
+    borderColor: colors.accentGreen,
+  },
+  setButtonText: {
+    color: colors.textMain,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  setButtonTextDone: {
+    color: '#bbf7d0',
+    fontSize: 12,
+    fontWeight: '800',
   },
   performedInput: {
     minWidth: 60,

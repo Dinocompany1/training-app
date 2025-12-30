@@ -1,5 +1,6 @@
 // app/body-photos.tsx
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Camera, Trash2 } from 'lucide-react-native';
@@ -28,14 +29,15 @@ export default function BodyPhotosScreen() {
   const [uri, setUri] = useState('');
   const [date, setDate] = useState(todayStr);
   const [note, setNote] = useState('');
+  const [pickError, setPickError] = useState('');
 
-  const sorted = useMemo(
-    () =>
-      [...bodyPhotos].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      ),
-    [bodyPhotos]
-  );
+  const sorted = useMemo(() => {
+    return [...bodyPhotos].sort((a, b) => {
+      const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return (Number(b.id) || 0) - (Number(a.id) || 0);
+    });
+  }, [bodyPhotos]);
 
   const handleAdd = () => {
     const trimmed = uri.trim();
@@ -52,6 +54,25 @@ export default function BodyPhotosScreen() {
     addBodyPhoto(photo);
     setUri('');
     setNote('');
+    setPickError('');
+  };
+
+  const pickImage = async () => {
+    setPickError('');
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setPickError(t('bodyPhotos.permissionError'));
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets || result.assets.length === 0) {
+      return;
+    }
+    const asset = result.assets[0];
+    setUri(asset.uri || '');
   };
 
   const handleRemove = (id: string) => {
@@ -72,7 +93,7 @@ export default function BodyPhotosScreen() {
     >
       <ScrollView
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: 40, paddingTop: 20 }}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerRow}>
@@ -82,22 +103,14 @@ export default function BodyPhotosScreen() {
           <Text style={styles.title}>{t('bodyPhotos.title')}</Text>
           <View style={{ width: 70 }} />
         </View>
-        <Text style={styles.subtitle}>
-          {t('bodyPhotos.subtitle')}
-        </Text>
-
         <GlassCard style={styles.card}>
-          <View style={styles.inputRow}>
-            <Camera size={18} color={colors.accentBlue} />
-            <TextInput
-              style={styles.input}
-              value={uri}
-              onChangeText={setUri}
-              placeholder={t('bodyPhotos.urlPlaceholder')}
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="none"
-            />
-          </View>
+          <Text style={styles.cardHeading}>{t('bodyPhotos.title')}</Text>
+          {uri ? (
+            <Text style={styles.pickHint}>{t('bodyPhotos.selected')}</Text>
+          ) : null}
+          {pickError ? (
+            <Text style={styles.errorText}>{pickError}</Text>
+          ) : null}
           <TextInput
             style={styles.input}
             value={date}
@@ -115,10 +128,18 @@ export default function BodyPhotosScreen() {
           />
           <TouchableOpacity
             style={styles.saveButton}
-            onPress={handleAdd}
+            onPress={() => {
+              if (!uri) {
+                pickImage();
+              } else {
+                handleAdd();
+              }
+            }}
             activeOpacity={0.9}
           >
-            <Text style={styles.saveButtonText}>{t('bodyPhotos.saveCta')}</Text>
+            <Text style={styles.saveButtonText}>
+              {uri ? t('bodyPhotos.saveCta') : '+ Lägg till bild'}
+            </Text>
           </TouchableOpacity>
         </GlassCard>
 
@@ -167,7 +188,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 28,
   },
   headerRow: {
     flexDirection: 'row',
@@ -192,11 +213,36 @@ const styles = StyleSheet.create({
   card: {
     marginBottom: 12,
   },
-  inputRow: {
+  cardHeading: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    marginBottom: 8,
+  },
+  pickRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  pickText: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+  },
+  pickHint: {
+    ...typography.caption,
+    color: colors.textSoft,
+    marginBottom: 6,
+  },
+  errorText: {
+    ...typography.caption,
+    color: '#fca5a5',
+    marginBottom: 6,
   },
   input: {
     flex: 1,

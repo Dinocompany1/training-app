@@ -1,7 +1,7 @@
 // app/schedule-workout.tsx
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Calendar as CalendarIcon,
   CheckCircle2,
@@ -10,7 +10,7 @@ import {
   PlusCircle,
   ListChecks,
 } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -58,8 +58,10 @@ const COLOR_OPTIONS = [
 
 export default function ScheduleWorkoutScreen() {
   const router = useRouter();
-  const { addWorkout, templates, customExercises } = useWorkouts();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const { addWorkout, updateWorkout, templates, customExercises, workouts } = useWorkouts();
   const { t } = useTranslation();
+  const editingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   // Card 1 – passinfo
   const [title, setTitle] = useState('');
@@ -110,6 +112,32 @@ export default function ScheduleWorkoutScreen() {
 
   // När man trycker "Klar" för att gå till set/reps/vikt-läget
   const [showDetails, setShowDetails] = useState(false);
+
+  useEffect(() => {
+    if (!editingId) return;
+    const existing = (workouts || []).find((w) => w.id === editingId);
+    if (!existing) return;
+    setTitle(existing.title || '');
+    setNotes(existing.notes || '');
+    setColor(existing.color || '#3b82f6');
+    setDates([existing.date]);
+    setDateInput(existing.date);
+    if (existing.sourceTemplateId) {
+      setSelectedTemplateId(existing.sourceTemplateId);
+    }
+    const mapped = (existing.exercises || []).map((ex) => ({
+      id: ex.id || `${ex.name}-${Math.random()}`,
+      name: ex.name,
+      sets: ex.sets,
+      reps: ex.reps,
+      weight: ex.weight,
+      muscleGroup: ex.muscleGroup,
+      performedSets: ex.performedSets || buildInitialPerformedSets(ex.sets, ex.reps, ex.weight),
+      done: false,
+    })) as Exercise[];
+    setSelectedExercises(mapped);
+    setShowDetails(true);
+  }, [editingId, workouts]);
 
   const applyTemplate = (t: Template) => {
     setSelectedTemplateId(t.id);
@@ -386,27 +414,40 @@ export default function ScheduleWorkoutScreen() {
       };
     });
 
-    finalDates.forEach((date) => {
-      addWorkout({
-        id: Date.now().toString() + date,
+    if (editingId) {
+      updateWorkout({
+        id: editingId,
         title: trimmedTitle,
-        date,
+        date: finalDates[0] || todayStr,
         notes: notes.trim() || undefined,
         exercises: normalizedExercises,
         color,
         isCompleted: false,
         sourceTemplateId: selectedTemplateId || undefined,
       });
-    });
+    } else {
+      finalDates.forEach((date) => {
+        addWorkout({
+          id: Date.now().toString() + date,
+          title: trimmedTitle,
+          date,
+          notes: notes.trim() || undefined,
+          exercises: normalizedExercises,
+          color,
+          isCompleted: false,
+          sourceTemplateId: selectedTemplateId || undefined,
+        });
+      });
+    }
 
     toast(t('schedule.savedToast'));
     Alert.alert(t('schedule.savedTitle'), t('schedule.savedBody'), [
-      { text: t('schedule.stay'), style: 'default' },
       {
         text: t('schedule.openCalendar'),
         style: 'default',
         onPress: () => router.replace('/(tabs)/calendar'),
       },
+      { text: t('schedule.stay'), style: 'cancel' },
     ]);
   };
 

@@ -12,6 +12,7 @@ type Props = {
   toastMessage?: string;
   accessibilityLabel?: string;
   variant?: 'primary' | 'green' | 'ghost';
+  hideIcon?: boolean;
 };
 
 export default function NeonButton({
@@ -22,6 +23,7 @@ export default function NeonButton({
   toastMessage,
   accessibilityLabel,
   variant = 'primary',
+  hideIcon = false,
 }: Props) {
   const isGreen = variant === 'green';
   const isGhost = variant === 'ghost';
