@@ -14,6 +14,7 @@ import GlassCard from '../components/ui/GlassCard';
 import { colors, gradients, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 type PeriodKey = '7d' | '30d' | '90d' | 'all';
 
@@ -218,27 +219,20 @@ export default function TrainingFrequencyScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerBlock}>
-          <View style={styles.headerBlock}>
-            <TouchableOpacity
-              style={styles.backPill}
-              onPress={() => router.back()}
-              accessibilityRole="button"
-              accessibilityLabel={t('common.back', 'Tillbaka')}
-            >
-              <Text style={styles.backText}>{t('common.back', 'Tillbaka')}</Text>
-            </TouchableOpacity>
-            <Text style={styles.title}>
-              {selected
-                ? `${t('stats.freqTitle', 'Träningsfrekvens')} · ${selected}`
-                : t('stats.freqTitle', 'Träningsfrekvens')}
-            </Text>
-            <Text style={styles.subtitle}>
-              {t('stats.freqSubtitle', 'Se hur ofta och hur mycket du tränar en övning.')}
-            </Text>
-            <Text style={styles.metaLine}>
-              {t(`stats.filters.${period}`, period)} · {selected || t('stats.freqSelectTitle', 'Välj övning')}
-            </Text>
+          <View style={styles.backRow}>
+            <BackPill onPress={() => router.back()} />
           </View>
+          <Text style={styles.title}>
+            {selected
+              ? `${t('stats.freqTitle', 'Träningsfrekvens')} · ${selected}`
+              : t('stats.freqTitle', 'Träningsfrekvens')}
+          </Text>
+          <Text style={styles.subtitle}>
+            {t('stats.freqSubtitle', 'Se hur ofta och hur mycket du tränar en övning.')}
+          </Text>
+          <Text style={styles.metaLine}>
+            {t(`stats.filters.${period}`, period)} · {selected || t('stats.freqSelectTitle', 'Välj övning')}
+          </Text>
         </View>
 
         <View style={styles.filterRow}>
@@ -601,18 +595,9 @@ const styles = StyleSheet.create({
     gap: 2,
     marginBottom: 4,
   },
-  backPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
-  },
-  backText: {
-    ...typography.caption,
-    color: colors.textSoft,
+  backRow: {
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   miniBarBg: {
     width: 80,

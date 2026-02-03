@@ -46,7 +46,9 @@ export default function ExerciseLibrary({
             </View>
             <View>
               <Text style={styles.groupTitle}>{translateGroup(group.group)}</Text>
-              <Text style={styles.groupSubtitle}>{t('library.metaCount', group.exercises.length)}</Text>
+              <Text style={styles.groupSubtitle}>
+                {t('library.metaCount', undefined, group.exercises.length)}
+              </Text>
             </View>
           </View>
 

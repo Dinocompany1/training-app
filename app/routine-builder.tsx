@@ -28,6 +28,7 @@ import ExerciseLibrary from '../components/ui/ExerciseLibrary';
 import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
 import { useTranslation } from '../context/TranslationContext';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
+import BackPill from '../components/ui/BackPill';
 
 const sanitizeNumeric = (value: string) =>
   value.replace(/[^0-9.,-]/g, '').replace(',', '.');
@@ -332,6 +333,9 @@ export default function RoutineBuilderScreen() {
             contentContainerStyle={{ paddingBottom: 40 }}
             showsVerticalScrollIndicator={false}
           >
+          <View style={{ paddingBottom: 6 }}>
+            <BackPill onPress={() => router.back()} />
+          </View>
           <Text style={styles.title}>{t('routineBuilder.title')}</Text>
           <Text style={styles.subtitle}>
             {t('routineBuilder.subtitle')}

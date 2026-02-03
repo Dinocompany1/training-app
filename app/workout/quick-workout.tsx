@@ -29,6 +29,7 @@ import {
 } from '../../utils/ongoingQuickWorkout';
 import { toast } from '../../utils/toast';
 import { useTranslation } from '../../context/TranslationContext';
+import BackPill from '../../components/ui/BackPill';
 
 type QuickSet = {
   id: string;
@@ -593,6 +594,9 @@ const defaultTitle =
   return (
     <LinearGradient colors={gradients.appBackground} style={{ flex: 1 }}>
       <SafeAreaView style={styles.safe}>
+        <View style={{ paddingHorizontal: 16, paddingTop: 6 }}>
+          <BackPill />
+        </View>
         <Modal
           visible={templateModalVisible}
           transparent

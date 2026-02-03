@@ -16,6 +16,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BackPill from '../../components/ui/BackPill';
 import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
@@ -27,6 +29,7 @@ export default function WorkoutDetailScreen() {
   const router = useRouter();
   const { workouts, removeWorkout, updateWorkout, addWorkout } = useWorkouts();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
 
   const workout = useMemo(
     () => workouts.find((w) => w.id === id),
@@ -159,18 +162,16 @@ export default function WorkoutDetailScreen() {
       style={styles.full}
     >
       <ScrollView
-        style={styles.container}
+        style={[
+          styles.container,
+          { paddingTop: Math.max(16, insets.top + 12) },
+        ]}
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
         {/* BACK + TITLE */}
         <View style={styles.topRow}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <ArrowLeft size={18} color={colors.textMain} />
-          </TouchableOpacity>
+          <BackPill onPress={() => router.back()} />
           <Text style={styles.screenTitle}>{t('workoutDetail.title')}</Text>
         </View>
 
@@ -320,7 +321,7 @@ export default function WorkoutDetailScreen() {
               accessibilityRole="button"
             >
               <Pencil size={16} color="#e5e7eb" />
-              <Text style={styles.buttonText}>{t('common.edit')}</Text>
+              <Text style={styles.buttonText}>{t('common.edit', 'Ändra')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -374,12 +375,28 @@ export default function WorkoutDetailScreen() {
                   >
                     <View style={styles.exerciseHeaderRow}>
                       <Text style={styles.exerciseName}>{ex.name}</Text>
-                      <Text style={styles.exerciseMetaRight}>
-                        {ex.sets} set · {ex.reps} reps
-                      </Text>
+                      {(() => {
+                        const setCount =
+                          ex.performedSets?.length ??
+                          (Number.isFinite(ex.sets) ? ex.sets : undefined);
+                        const repsValue =
+                          ex.reps ??
+                          ex.performedSets?.find((ps) => ps.reps !== undefined)?.reps ??
+                          '–';
+                        const weightValue =
+                          Number.isFinite(ex.weight)
+                            ? ex.weight
+                            : ex.performedSets?.find((ps) => Number.isFinite(ps.weight))?.weight ??
+                              '–';
+                        return (
+                          <Text style={styles.exerciseMetaRight}>
+                            {setCount ?? '–'} set · {repsValue} reps · {weightValue} kg
+                          </Text>
+                        );
+                      })()}
                     </View>
                     <Text style={styles.exerciseMeta}>
-                      Vikt: {ex.weight} kg
+                      Vikt: {Number.isFinite(ex.weight) ? ex.weight : '–'} kg
                     </Text>
                   </TouchableOpacity>
 
@@ -390,7 +407,9 @@ export default function WorkoutDetailScreen() {
                     </View>
                     {ex.performedSets?.map((s, idx) => (
                       <View key={`${ex.id}-${idx}`} style={styles.performedSetRow}>
-                        <Text style={styles.performedSetLabel}>{t('workoutDetail.setLabel', idx + 1)}</Text>
+                        <Text style={styles.performedSetLabel}>
+                          {t('workoutDetail.setLabel', undefined, idx + 1)}
+                        </Text>
                         <View style={styles.performedInputs}>
                           <TextInput
                             style={styles.performedInput}
@@ -494,7 +513,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 8,
   },
   topRow: {
     flexDirection: 'row',
@@ -503,14 +521,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#020617',
   },
   screenTitle: {
     color: colors.textMain,

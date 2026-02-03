@@ -1,7 +1,8 @@
 // app/exercise-progress/[name].tsx
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, TrendingUp } from 'lucide-react-native';
+import { TrendingUp } from 'lucide-react-native';
 import React, { useMemo } from 'react';
 import {
   ScrollView,
@@ -15,6 +16,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
+import BackPill from '../../components/ui/BackPill';
 
 type SessionRow = {
   date: string;
@@ -29,6 +31,7 @@ export default function ExerciseProgressDetailScreen() {
   const router = useRouter();
   const { workouts } = useWorkouts();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
 
   const exerciseName = Array.isArray(name) ? name[0] : name;
 
@@ -146,34 +149,35 @@ export default function ExerciseProgressDetailScreen() {
   const lastDateLabel = stats.lastDate || '–';
 
   return (
-    <LinearGradient
-      colors={gradients.appBackground}
-      style={styles.full}
-    >
+    <LinearGradient colors={gradients.appBackground} style={styles.full}>
       <ScrollView
-        style={styles.container}
+        style={[
+          styles.container,
+          { paddingTop: Math.max(32, insets.top + 12) },
+        ]}
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
         {/* header */}
         <View style={styles.headerRow}>
-          <TouchableOpacity
-            style={styles.backPill}
-            onPress={() => router.back()}
-            accessibilityLabel={t('exerciseDetail.backA11y')}
-            accessibilityRole="button"
-          >
-            <ArrowLeft size={14} color={colors.textSoft} />
-            <Text style={styles.backText}>{t('exerciseDetail.back')}</Text>
-          </TouchableOpacity>
+          <BackPill onPress={() => router.back()} />
         </View>
 
-        <Text style={styles.title}>
-          {exerciseName || t('exerciseDetail.unnamed')}
-        </Text>
-        <Text style={styles.subtitle}>
-          {t('exerciseDetail.subtitle')}
-        </Text>
+        <View style={styles.titleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>
+              {exerciseName || t('exerciseDetail.unnamed')}
+            </Text>
+            <Text style={styles.subtitle}>
+              {t('exerciseDetail.subtitle')}
+            </Text>
+          </View>
+          {stats.sessions > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{stats.sessions} pass</Text>
+            </View>
+          )}
+        </View>
 
         {sessions.length === 0 ? (
           <Text style={styles.emptyText}>
@@ -240,36 +244,42 @@ export default function ExerciseProgressDetailScreen() {
                 {t('exerciseDetail.weightTrendSub')}
               </Text>
 
-              <View style={styles.sparkWrapper}>
-                <Svg height="140" width="100%">
-                  {sparkPoints.length > 1 && (
-                    <Polyline
-                      points={sparkPoints.map((p) => `${p.x},${p.y}`).join(' ')}
-                      fill="none"
-                      stroke={colors.accentPurple}
-                      strokeWidth={2}
-                      strokeLinejoin="round"
-                    />
-                  )}
-                  {sparkPoints.map((p, idx) => (
-                    <Circle
-                      key={idx}
-                      cx={p.x}
-                      cy={p.y}
-                      r={3.2}
-                      fill={colors.accentPurple}
-                    />
-                  ))}
-                </Svg>
-                <View style={styles.sparkLabels}>
-                  <Text style={styles.sparkLabel}>
-                    {t('exerciseDetail.firstSession')} {firstDateLabel}
-                  </Text>
-                  <Text style={styles.sparkLabel}>
-                    {t('exerciseDetail.latestSession')} {lastDateLabel}
-                  </Text>
+              {sparkPoints.length === 0 ? (
+                <Text style={styles.emptyText}>
+                  {t('exerciseDetail.empty')}
+                </Text>
+              ) : (
+                <View style={styles.sparkWrapper}>
+                  <Svg height="140" width="100%">
+                    {sparkPoints.length > 1 && (
+                      <Polyline
+                        points={sparkPoints.map((p) => `${p.x},${p.y}`).join(' ')}
+                        fill="none"
+                        stroke={colors.accentPurple}
+                        strokeWidth={2}
+                        strokeLinejoin="round"
+                      />
+                    )}
+                    {sparkPoints.map((p, idx) => (
+                      <Circle
+                        key={idx}
+                        cx={p.x}
+                        cy={p.y}
+                        r={3.2}
+                        fill={colors.accentPurple}
+                      />
+                    ))}
+                  </Svg>
+                  <View style={styles.sparkLabels}>
+                    <Text style={styles.sparkLabel}>
+                      {t('exerciseDetail.firstSession')} {firstDateLabel}
+                    </Text>
+                    <Text style={styles.sparkLabel}>
+                      {t('exerciseDetail.latestSession')} {lastDateLabel}
+                    </Text>
+                  </View>
                 </View>
-              </View>
+              )}
             </GlassCard>
 
             {/* Detaljerad historik */}
@@ -285,31 +295,31 @@ export default function ExerciseProgressDetailScreen() {
                   (a, b) =>
                     new Date(b.date).getTime() - new Date(a.date).getTime()
                 )
-                .map((h, index) => (
-                <View
-                  key={`${h.date}-${index}`}
-                  style={styles.historyRow}
-                  accessibilityLabel={`Datum ${h.date}. ${h.sets} set, ${h.totalReps} reps, ${h.bestWeight} kilo. Volym ${Math.round(h.totalVolume)}.`}
-                  accessibilityRole="text"
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.historyDate}>
-                      {h.date}
-                    </Text>
-                    <Text style={styles.historyText}>
-                      {h.sets} set × {h.totalReps} reps
-                    </Text>
+                .map((h, index, arr) => (
+                  <View
+                    key={`${h.date}-${index}`}
+                    style={[styles.historyRow, index === arr.length - 1 && styles.historyRowLast]}
+                    accessibilityLabel={`Datum ${h.date}. ${h.sets} set, ${h.totalReps} reps, ${h.bestWeight} kilo. Volym ${Math.round(h.totalVolume)}.`}
+                    accessibilityRole="text"
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyDate}>
+                        {h.date}
+                      </Text>
+                      <Text style={styles.historyText}>
+                        {h.sets} set × {h.totalReps} reps
+                      </Text>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={styles.historyWeight}>
+                        {h.bestWeight} kg
+                      </Text>
+                      <Text style={styles.historyVolume}>
+                        Volym: {Math.round(h.totalVolume)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.historyRight}>
-                    <Text style={styles.historyWeight}>
-                      {h.bestWeight} kg
-                    </Text>
-                    <Text style={styles.historyVolume}>
-                      Volym: {Math.round(h.totalVolume)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                ))}
             </GlassCard>
           </>
         )}
@@ -325,25 +335,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
   },
   headerRow: {
-    marginBottom: 4,
-  },
-  backPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
-  },
-  backText: {
-    color: colors.textSoft,
-    fontSize: 12,
+    marginBottom: 8,
+    alignItems: 'flex-start',
   },
   title: {
     color: colors.textMain,
@@ -355,6 +350,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     marginBottom: 10,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  badge: {
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0b1220',
+  },
+  badgeText: {
+    color: colors.textMain,
+    fontSize: 11,
+    fontWeight: '700',
   },
   emptyText: {
     color: colors.textSoft,
@@ -455,6 +468,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#111827',
+  },
+  historyRowLast: {
+    borderBottomWidth: 0,
   },
   historyDate: {
     color: colors.textMain,

@@ -18,6 +18,7 @@ import { EXERCISE_IMAGE_MAP, CustomExercise } from '../../constants/exerciseLibr
 import { useTranslation } from '../../context/TranslationContext';
 import EmptyState from '../../components/ui/EmptyState';
 import Svg, { Polyline, Circle } from 'react-native-svg';
+import BackPill from '../../components/ui/BackPill';
 
 interface ExerciseHistoryItem {
   date: string;
@@ -118,6 +119,9 @@ export default function ExerciseProgressListScreen() {
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.backRow}>
+          <BackPill onPress={() => router.back()} />
+        </View>
         <Text style={styles.title}>
           {muscleFilter
             ? `${t('exerciseProgress.title')} · ${muscleFilter}`
@@ -223,6 +227,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  backRow: {
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   title: {
     color: colors.textMain,

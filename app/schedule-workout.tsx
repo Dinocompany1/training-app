@@ -32,6 +32,7 @@ import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
 import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 const MUSCLE_MAP: Record<string, string> = {
   Bröst: 'Bröst',
@@ -462,10 +463,13 @@ export default function ScheduleWorkoutScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
-            style={styles.container}
-            contentContainerStyle={{ paddingBottom: 40 }}
-            showsVerticalScrollIndicator={false}
-          >
+          style={styles.container}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ paddingBottom: 6 }}>
+            <BackPill onPress={() => router.back()} />
+          </View>
           <Text style={styles.title}>{t('schedule.title')}</Text>
           <Text style={styles.subtitle}>
             {t('schedule.subtitle')}

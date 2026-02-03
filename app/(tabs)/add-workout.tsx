@@ -92,7 +92,13 @@ export default function AddWorkoutScreen() {
                 Haptics.selectionAsync();
                 router.push('/workout/quick-workout');
               }}
-              style={{ marginTop: 4 }}
+              style={{
+                marginTop: 4,
+                shadowOpacity: 0.12,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 3 },
+                elevation: 3,
+              }}
               variant="green"
               accessibilityLabel={t('add.quickA11y')}
               accessibilityRole="button"

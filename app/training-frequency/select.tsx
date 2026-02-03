@@ -14,6 +14,7 @@ import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
+import BackPill from '../../components/ui/BackPill';
 
 export default function TrainingFrequencySelectScreen() {
   const { workouts } = useWorkouts();
@@ -36,14 +37,9 @@ export default function TrainingFrequencySelectScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <TouchableOpacity
-          style={styles.backPill}
-          onPress={() => router.replace('/training-frequency')}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'Tillbaka')}
-        >
-          <Text style={styles.backText}>{t('common.back', 'Tillbaka')}</Text>
-        </TouchableOpacity>
+        <View style={styles.backRow}>
+          <BackPill onPress={() => router.replace('/training-frequency')} />
+        </View>
         <Text style={styles.title}>{t('stats.freqSelectTitle', 'Välj övning')}</Text>
         <Text style={styles.subtitle}>{t('stats.freqSelectSub', 'Vilken övning vill du se träningsfrekvens för?')}</Text>
 
@@ -84,6 +80,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
+  backRow: {
+    paddingTop: 8,
+    paddingBottom: 6,
+  },
   title: {
     ...typography.display,
     color: colors.textMain,
@@ -103,19 +103,5 @@ const styles = StyleSheet.create({
   name: {
     ...typography.bodyBold,
     color: colors.textMain,
-  },
-  backPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
-    marginBottom: 8,
-  },
-  backText: {
-    ...typography.caption,
-    color: colors.textSoft,
   },
 });

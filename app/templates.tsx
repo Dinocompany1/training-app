@@ -19,6 +19,7 @@ import { colors, gradients, typography } from '../constants/theme';
 import { Template, useWorkouts } from '../context/WorkoutsContext';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 export default function TemplatesScreen() {
   const { templates, removeTemplate, addTemplate } = useWorkouts();
@@ -65,6 +66,7 @@ export default function TemplatesScreen() {
           contentContainerStyle={styles.container}
           ListHeaderComponent={
             <View style={styles.header}>
+              <BackPill onPress={() => router.back()} />
               <Text style={styles.title}>{t('templates.title')}</Text>
               <Text style={styles.subtitle}>
                 {t('templates.subtitle')}
@@ -75,7 +77,13 @@ export default function TemplatesScreen() {
                   Haptics.selectionAsync();
                   router.push('/routine-builder');
                 }}
-                style={{ marginTop: 8 }}
+                style={{
+                  marginTop: 8,
+                  shadowOpacity: 0.12,
+                  shadowRadius: 6,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 3,
+                }}
                 toastMessage={t('templates.createToast')}
               />
             </View>

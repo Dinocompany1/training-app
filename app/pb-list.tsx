@@ -14,6 +14,7 @@ import GlassCard from '../components/ui/GlassCard';
 import { colors, gradients, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 export default function PBListScreen() {
   const { workouts } = useWorkouts();
@@ -94,6 +95,9 @@ export default function PBListScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.backRow}>
+          <BackPill onPress={() => router.back()} />
+        </View>
         <Text style={styles.title}>{t('stats.pbTitle', 'PB')}</Text>
         <Text style={styles.subtitle}>
           {t('stats.pbSubtitle', 'Dina senaste personbästa i perioden.')}
@@ -204,6 +208,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  backRow: {
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   title: {
     ...typography.display,

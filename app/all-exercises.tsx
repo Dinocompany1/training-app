@@ -1,6 +1,6 @@
 // app/all-exercises.tsx
 import { LinearGradient } from 'expo-linear-gradient';
-import { Dumbbell } from 'lucide-react-native';
+import { Dumbbell, Trash2, MoveRight } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import {
   ScrollView,
@@ -19,16 +19,20 @@ import { colors, gradients, typography } from '../constants/theme';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 export default function AllExercisesScreen() {
   const {
     customExercises,
     addCustomExercise,
+    removeCustomExercise,
     customGroups,
     addCustomGroup,
     removeCustomGroup,
   } = useWorkouts();
-  const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
+  const [selectedExercises, setSelectedExercises] = useState<
+    { name: string; group: string }[]
+  >([]);
   const { t } = useTranslation();
   const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
   const translateName = (n: string) => t(`exercises.names.${n}`, n);
@@ -68,11 +72,15 @@ export default function AllExercisesScreen() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [groupError, setGroupError] = useState('');
   const [exerciseError, setExerciseError] = useState('');
+  const [moveGroup, setMoveGroup] = useState('');
 
   // Om vald grupp tas bort, rensa valet
   React.useEffect(() => {
     if (newGroup && !groupNames.includes(newGroup)) {
       setNewGroup('');
+    }
+    if (moveGroup && !groupNames.includes(moveGroup)) {
+      setMoveGroup('');
     }
   }, [groupNames, newGroup]);
 
@@ -88,8 +96,16 @@ export default function AllExercisesScreen() {
     });
   };
 
-  const handlePressExercise = (name: string) => {
-    setSelectedExercise((prev) => (prev === name ? null : name));
+  const handlePressExercise = (name: string, group: string) => {
+    setSelectedExercises((prev) => {
+      const exists = prev.find(
+        (p) => p.name === name && p.group === group
+      );
+      if (exists) {
+        return prev.filter((p) => !(p.name === name && p.group === group));
+      }
+      return [...prev, { name, group }];
+    });
   };
 
   return (
@@ -98,6 +114,9 @@ export default function AllExercisesScreen() {
         colors={gradients.appBackground}
         style={styles.full}
       >
+        <View style={styles.backRow}>
+          <BackPill />
+        </View>
         <ScrollView
           style={styles.container}
           contentContainerStyle={{ paddingBottom: 32 }}
@@ -332,13 +351,15 @@ export default function AllExercisesScreen() {
                 group.exercises.map((ex, index) => {
                   const name = typeof ex === 'string' ? ex : ex.name;
                   const displayName = translateName(name);
-                  const isSelected = selectedExercise === name;
+                  const isSelected = selectedExercises.some(
+                    (p) => p.name === name && p.group === group.group
+                  );
                   const isLast = index === group.exercises.length - 1;
 
                   return (
                     <TouchableOpacity
                       key={name}
-                      onPress={() => handlePressExercise(name)}
+                      onPress={() => handlePressExercise(name, group.group)}
                       activeOpacity={0.8}
                       style={[
                         styles.exerciseRow,
@@ -373,15 +394,104 @@ export default function AllExercisesScreen() {
           </GlassCard>
         ))}
 
-        {selectedExercise && (
-          <View style={styles.footerInfo}>
-            <Text style={styles.footerLabel}>{t('library.footerSelected')}</Text>
-            <Text style={styles.footerValue}>{translateName(selectedExercise)}</Text>
-            <Text style={styles.footerHint}>
-              {t('library.footerHint')}
-            </Text>
-          </View>
-        )}
+        {selectedExercises.length > 0 && (() => {
+          const moveTarget = moveGroup;
+          const hasTarget = !!moveTarget;
+          return (
+            <View style={styles.footerInfo}>
+              <Text style={styles.footerLabel}>{t('library.footerSelected')}</Text>
+              <Text style={styles.footerValue}>
+                {selectedExercises.length === 1
+                  ? translateName(selectedExercises[0].name)
+                  : `${selectedExercises.length} övningar valda`}
+              </Text>
+              {selectedExercises.length === 1 ? (
+                <Text style={styles.footerHint}>
+                  {translateGroup(selectedExercises[0].group)}
+                </Text>
+              ) : null}
+
+              <Text style={[styles.fieldLabel, { marginTop: 10 }]}>
+                {t('library.groupLabel')}
+              </Text>
+              <View style={styles.chipRow}>
+                {groupNames.map((g) => {
+                  const active = moveGroup === g;
+                  return (
+                    <TouchableOpacity
+                      key={`move-${g}`}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() => setMoveGroup(g)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('library.selectGroup', translateGroup(g))}
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                        {translateGroup(g)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.dangerButton]}
+                  onPress={() => {
+                    selectedExercises.forEach((sel) =>
+                      removeCustomExercise(sel.name, sel.group)
+                    );
+                    setSelectedExercises([]);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ta bort övning"
+                >
+                  <Trash2 size={14} color="#fca5a5" />
+                  <Text style={styles.actionButtonText}>Ta bort</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    styles.moveButton,
+                    (!hasTarget || selectedExercises.every((sel) => moveTarget === sel.group)) &&
+                      styles.actionDisabled,
+                  ]}
+                  disabled={
+                    !hasTarget || selectedExercises.every((sel) => moveTarget === sel.group)
+                  }
+                  onPress={() => {
+                    if (!hasTarget) return;
+                    const updated = new Set<string>();
+                    selectedExercises.forEach((sel) => {
+                      if (moveTarget === sel.group) {
+                        updated.add(`${sel.name}::${sel.group}`);
+                        return;
+                      }
+                      removeCustomExercise(sel.name, sel.group);
+                      addCustomExercise({
+                        name: sel.name,
+                        muscleGroup: moveTarget,
+                      });
+                      updated.add(`${sel.name}::${moveTarget}`);
+                    });
+                    setSelectedExercises(
+                      Array.from(updated).map((key) => {
+                        const [name, group] = key.split('::');
+                        return { name, group };
+                      })
+                    );
+                    setMoveGroup('');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Flytta övning"
+                >
+                  <MoveRight size={14} color={colors.accentBlue} />
+                  <Text style={styles.actionButtonText}>Flytta</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })()}
         </ScrollView>
       </LinearGradient>
     </SafeAreaView>
@@ -395,6 +505,11 @@ const styles = StyleSheet.create({
   },
   full: {
     flex: 1,
+  },
+  backRow: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   container: {
     flex: 1,
@@ -551,6 +666,38 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: colors.textSoft,
     marginTop: 6,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: '#0b1220',
+  },
+  actionButtonText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
+  actionDisabled: {
+    opacity: 0.5,
+  },
+  dangerButton: {
+    borderColor: '#ef4444',
+    backgroundColor: '#2f1212',
+  },
+  moveButton: {
+    borderColor: colors.accentBlue,
+    backgroundColor: '#0b1530',
   },
   input: {
     backgroundColor: colors.backgroundSoft,
