@@ -14,11 +14,11 @@ import {
 import GlassCard from '../../components/ui/GlassCard';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
-import { EXERCISE_IMAGE_MAP, CustomExercise } from '../../constants/exerciseLibrary';
 import { useTranslation } from '../../context/TranslationContext';
 import EmptyState from '../../components/ui/EmptyState';
 import Svg, { Polyline, Circle } from 'react-native-svg';
 import BackPill from '../../components/ui/BackPill';
+import { compareISODate } from '../../utils/date';
 
 interface ExerciseHistoryItem {
   date: string;
@@ -40,7 +40,7 @@ interface ExerciseSummary {
 export default function ExerciseProgressListScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ muscle?: string }>();
-  const { workouts, customExercises } = useWorkouts();
+  const { workouts } = useWorkouts();
   const { t } = useTranslation();
   const muscleFilter =
     params.muscle && typeof params.muscle === 'string'
@@ -74,7 +74,7 @@ export default function ExerciseProgressListScreen() {
         if ((ex.weight || 0) > entry.bestWeight) {
           entry.bestWeight = ex.weight || 0;
         }
-        if (new Date(workout.date) > new Date(entry.lastDate)) {
+        if (compareISODate(workout.date, entry.lastDate) > 0) {
           entry.lastDate = workout.date;
         }
 
@@ -101,12 +101,11 @@ export default function ExerciseProgressListScreen() {
 
     // sortera: senast tränade överst
     arr.sort(
-      (a, b) =>
-        new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime()
+      (a, b) => compareISODate(b.lastDate, a.lastDate)
     );
 
     return arr;
-  }, [workouts, customExercises, muscleFilter]);
+  }, [workouts, muscleFilter]);
 
   return (
     <SafeAreaView style={styles.full}>
@@ -176,7 +175,7 @@ export default function ExerciseProgressListScreen() {
                       ) : null}
                       <View style={styles.tag}>
                         <Text style={styles.tagText}>
-                          {t('exerciseProgress.lastTrained', ex.lastDate)}
+                          {t('exerciseProgress.lastTrained', undefined, ex.lastDate)}
                         </Text>
                       </View>
                     </View>
@@ -199,7 +198,7 @@ export default function ExerciseProgressListScreen() {
                     <Text style={styles.pillValue}>{ex.totalSets}</Text>
                   </View>
                   <View style={styles.pillBox}>
-                    <Text style={styles.pillLabel}>{t('exerciseProgress.lastTrainedShort', 'Senast')}</Text>
+                    <Text style={styles.pillLabel}>{t('exerciseProgress.lastTrainedShort')}</Text>
                     <Text style={styles.pillValue}>{ex.lastDate}</Text>
                   </View>
                 </View>
@@ -388,7 +387,7 @@ function ExerciseSparkline({ history }: { history: { date: string; weight: numbe
       </View>
     );
   }
-  const sorted = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const sorted = [...history].sort((a, b) => compareISODate(a.date, b.date));
   const last = sorted[sorted.length - 1]?.weight ?? 0;
   const first = sorted[0]?.weight ?? 0;
   const delta = last - first;
@@ -422,7 +421,7 @@ function ExerciseSparkline({ history }: { history: { date: string; weight: numbe
         })}
       </Svg>
       <Text style={styles.sparkHint}>
-        {t('exerciseProgress.lastTrainedShort', 'Senast')}: {sorted[sorted.length - 1]?.date ?? '-'}
+        {t('exerciseProgress.lastTrainedShort')}: {sorted[sorted.length - 1]?.date ?? '-'}
       </Text>
     </View>
   );

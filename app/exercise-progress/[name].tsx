@@ -8,7 +8,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import Svg, { Polyline, Circle } from 'react-native-svg';
@@ -17,6 +16,7 @@ import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import BackPill from '../../components/ui/BackPill';
+import { compareISODate } from '../../utils/date';
 
 type SessionRow = {
   date: string;
@@ -83,7 +83,7 @@ export default function ExerciseProgressDetailScreen() {
       });
 
     rows.sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) => compareISODate(a.date, b.date)
     );
 
     return rows;
@@ -292,14 +292,19 @@ export default function ExerciseProgressDetailScreen() {
               {[...sessions]
                 .slice()
                 .sort(
-                  (a, b) =>
-                    new Date(b.date).getTime() - new Date(a.date).getTime()
+                  (a, b) => compareISODate(b.date, a.date)
                 )
                 .map((h, index, arr) => (
                   <View
                     key={`${h.date}-${index}`}
                     style={[styles.historyRow, index === arr.length - 1 && styles.historyRowLast]}
-                    accessibilityLabel={`Datum ${h.date}. ${h.sets} set, ${h.totalReps} reps, ${h.bestWeight} kilo. Volym ${Math.round(h.totalVolume)}.`}
+                    accessibilityLabel={t('exerciseDetail.historyA11y', undefined, {
+                      date: h.date,
+                      sets: h.sets,
+                      reps: h.totalReps,
+                      weight: h.bestWeight,
+                      volume: Math.round(h.totalVolume),
+                    })}
                     accessibilityRole="text"
                   >
                     <View style={{ flex: 1 }}>
@@ -307,7 +312,10 @@ export default function ExerciseProgressDetailScreen() {
                         {h.date}
                       </Text>
                       <Text style={styles.historyText}>
-                        {h.sets} set × {h.totalReps} reps
+                        {t('exerciseDetail.historySetsReps', undefined, {
+                          sets: h.sets,
+                          reps: h.totalReps,
+                        })}
                       </Text>
                     </View>
                     <View style={styles.historyRight}>
@@ -315,7 +323,7 @@ export default function ExerciseProgressDetailScreen() {
                         {h.bestWeight} kg
                       </Text>
                       <Text style={styles.historyVolume}>
-                        Volym: {Math.round(h.totalVolume)}
+                        {t('exerciseDetail.historyVolume', undefined, Math.round(h.totalVolume))}
                       </Text>
                     </View>
                   </View>

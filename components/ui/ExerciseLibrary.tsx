@@ -3,6 +3,7 @@ import { Dumbbell } from 'lucide-react-native';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { colors, typography } from '../../constants/theme';
 import { useTranslation } from '../../context/TranslationContext';
+import { translateExerciseGroup, translateExerciseName } from '../../utils/exerciseTranslations';
 
 type ExerciseGroup = {
   group: string;
@@ -31,12 +32,12 @@ export default function ExerciseLibrary({
   onSelectMuscle,
 }: Props) {
   const { t } = useTranslation();
-  const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
-  const translateName = (n: string) => t(`exercises.names.${n}`, n);
+  const translateGroup = (g: string) => translateExerciseGroup(t, g);
+  const translateName = (n: string) => translateExerciseName(t, n);
 
   return (
     <View style={[styles.listBox, style]}>
-      <Text style={styles.sectionLabel}>{t('library.tapHint', 'Tap to add or remove exercises.')}</Text>
+      <Text style={styles.sectionLabel}>{t('library.tapHint')}</Text>
 
       {groups.map((group) => (
         <View key={group.group} style={styles.groupSection}>
@@ -70,7 +71,7 @@ export default function ExerciseLibrary({
                     ]}
                     onPress={() => onToggle(name, group.group)}
                     activeOpacity={0.8}
-                    accessibilityLabel={t('library.selectExercise', displayName)}
+                    accessibilityLabel={t('library.selectExercise', undefined, displayName)}
                     accessibilityRole="button"
                   >
                     <View style={styles.exerciseNameWrapper}>
@@ -110,7 +111,7 @@ export default function ExerciseLibrary({
                               active && styles.muscleChipActive,
                             ]}
                             onPress={() => onSelectMuscle(name, mg)}
-                            accessibilityLabel={t('library.selectGroup', displayGroup)}
+                            accessibilityLabel={t('library.selectGroup', undefined, displayGroup)}
                             accessibilityRole="button"
                           >
                             <Text

@@ -5,7 +5,7 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Calendar as CalendarIcon, ListChecks, Pencil, Play, Save, Trash2 } from 'lucide-react-native';
+import { Calendar as CalendarIcon, ListChecks, Pencil, Play, Save, Trash2 } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -23,6 +23,7 @@ import { colors, gradients } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import { toast } from '../../utils/toast';
+import { parseISODate, toISODate } from '../../utils/date';
 
 export default function WorkoutDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -42,8 +43,8 @@ export default function WorkoutDetailScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerDate, setPickerDate] = useState<Date>(() => {
     if (workout?.date) {
-      const parsed = new Date(workout.date);
-      if (!isNaN(parsed.getTime())) return parsed;
+      const parsed = parseISODate(workout.date);
+      if (parsed) return parsed;
     }
     return new Date();
   });
@@ -148,7 +149,7 @@ export default function WorkoutDetailScreen() {
     const nextDate = selectedDate || pickerDate;
     setShowDatePicker(false);
     setPickerDate(nextDate);
-    setDate(nextDate.toISOString().slice(0, 10));
+    setDate(toISODate(nextDate));
     setDetailError('');
   };
 
@@ -182,13 +183,13 @@ export default function WorkoutDetailScreen() {
               <Text style={styles.label}>{t('workoutDetail.nameLabel')}</Text>
               <TextInput
                 value={title}
-                onChangeText={(t) => {
-                  if (t.length > 60) {
+                onChangeText={(value) => {
+                  if (value.length > 60) {
                     setDetailError(t('workoutDetail.titleMax'));
-                    setTitle(t.slice(0, 60));
+                    setTitle(value.slice(0, 60));
                   } else {
                     setDetailError('');
-                    setTitle(t);
+                    setTitle(value);
                   }
                 }}
                 style={styles.input}
@@ -219,7 +220,7 @@ export default function WorkoutDetailScreen() {
                       value: new Date(Date.now() + 24 * 60 * 60 * 1000),
                     },
                   ].map((d) => {
-                    const iso = d.value.toISOString().slice(0, 10);
+                    const iso = toISODate(d.value);
                     const active = date === iso;
                     return (
                       <TouchableOpacity
@@ -234,7 +235,7 @@ export default function WorkoutDetailScreen() {
                           setDetailError('');
                           Haptics.selectionAsync();
                         }}
-                        accessibilityLabel={t('workoutDetail.dateQuickA11y', d.label)}
+                        accessibilityLabel={t('workoutDetail.dateQuickA11y', undefined, d.label)}
                         accessibilityRole="button"
                       >
                         <Text
@@ -254,13 +255,13 @@ export default function WorkoutDetailScreen() {
               <Text style={[styles.label, { marginTop: 10 }]}>{t('workoutDetail.notesLabel')}</Text>
               <TextInput
                 value={notes}
-                onChangeText={(t) => {
-                  if (t.length > 220) {
+                onChangeText={(value) => {
+                  if (value.length > 220) {
                     setDetailError(t('workoutDetail.notesMax'));
-                    setNotes(t.slice(0, 220));
+                    setNotes(value.slice(0, 220));
                   } else {
                     setDetailError('');
-                    setNotes(t);
+                    setNotes(value);
                   }
                 }}
                 style={[styles.input, styles.notesInput]}
@@ -321,7 +322,7 @@ export default function WorkoutDetailScreen() {
               accessibilityRole="button"
             >
               <Pencil size={16} color="#e5e7eb" />
-              <Text style={styles.buttonText}>{t('common.edit', 'Ändra')}</Text>
+              <Text style={styles.buttonText}>{t('common.edit')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -462,7 +463,7 @@ export default function WorkoutDetailScreen() {
                                 )
                               );
                             }}
-                            accessibilityLabel="Ändra vikt"
+                            accessibilityLabel={t('workoutDetail.changeWeightA11y')}
                             accessibilityRole="adjustable"
                             keyboardType="numeric"
                           />
@@ -481,7 +482,7 @@ export default function WorkoutDetailScreen() {
                             accessibilityRole="button"
                           >
                             <Text style={styles.setButtonText}>
-                              {t('common.save', 'Spara')}
+                              {t('common.save')}
                             </Text>
                           </TouchableOpacity>
                         </View>

@@ -12,7 +12,6 @@ import {
   Alert,
   SafeAreaView,
 } from 'react-native';
-import { Image } from 'expo-image';
 import GlassCard from '../components/ui/GlassCard';
 import EmptyState from '../components/ui/EmptyState';
 import { colors, gradients, typography } from '../constants/theme';
@@ -20,6 +19,7 @@ import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
+import { translateExerciseGroup, translateExerciseName } from '../utils/exerciseTranslations';
 
 export default function AllExercisesScreen() {
   const {
@@ -34,10 +34,8 @@ export default function AllExercisesScreen() {
     { name: string; group: string }[]
   >([]);
   const { t } = useTranslation();
-  const translateGroup = (g: string) => t(`exercises.groups.${g}`, g);
-  const translateName = (n: string) => t(`exercises.names.${n}`, n);
-  const placeholder =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAZlBMVEUAAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////8F6kJ+AAAAIHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyoyXwAAAChJREFUGNNjYGBgZGJmBgYWiJmFlYGRiYGRiZWBgYkB4hkZiRmBgYGRAAAWCwH4kG3QjgAAAABJRU5ErkJggg==';
+  const translateGroup = (g: string) => translateExerciseGroup(t, g);
+  const translateName = (n: string) => translateExerciseName(t, n);
 
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({
@@ -82,7 +80,7 @@ export default function AllExercisesScreen() {
     if (moveGroup && !groupNames.includes(moveGroup)) {
       setMoveGroup('');
     }
-  }, [groupNames, newGroup]);
+  }, [groupNames, newGroup, moveGroup]);
 
   const handleRemoveGroup = (name: string) => {
     removeCustomGroup(name);
@@ -147,7 +145,7 @@ export default function AllExercisesScreen() {
                   <View style={styles.formBlock}>
                     <Text style={styles.sectionTitle}>{t('library.groupLabel')}</Text>
                     <Text style={styles.sectionSub}>
-                      {t('library.formGroupHint', 'Välj eller lägg till muskelgrupp')}
+                      {t('library.formGroupHint')}
                     </Text>
                     <View style={styles.chipRow}>
                       {groupNames.map((g) => {
@@ -167,7 +165,7 @@ export default function AllExercisesScreen() {
                     <TextInput
                       value={customGroup}
                       onChangeText={setCustomGroup}
-                      placeholder={t('library.customGroupPlaceholder', 'Ny muskelgrupp')}
+                      placeholder={t('library.customGroupPlaceholder')}
                       placeholderTextColor={colors.textSoft}
                       style={[styles.input, { marginTop: 8 }]}
                     />
@@ -197,7 +195,7 @@ export default function AllExercisesScreen() {
                             style={styles.groupRemoveChip}
                             onPress={() => handleRemoveGroup(g)}
                             accessibilityRole="button"
-                            accessibilityLabel={t('library.removeGroup', g)}
+                            accessibilityLabel={t('library.removeGroup', undefined, g)}
                           >
                             <Text style={styles.groupRemoveText}>{g}  ×</Text>
                           </TouchableOpacity>
@@ -211,7 +209,7 @@ export default function AllExercisesScreen() {
                   <View style={styles.formBlock}>
                     <Text style={styles.sectionTitle}>{t('library.nameLabel')}</Text>
                     <Text style={styles.sectionSub}>
-                      {t('library.formExerciseHint', 'Lägg till övning i vald grupp')}
+                      {t('library.formExerciseHint')}
                     </Text>
                     <Text style={[styles.fieldLabel, { marginTop: 2 }]}>
                       {t('library.groupLabel')}
@@ -229,7 +227,7 @@ export default function AllExercisesScreen() {
                               setGroupError('');
                             }}
                             accessibilityRole="button"
-                            accessibilityLabel={t('library.selectGroup', translateGroup(g))}
+                            accessibilityLabel={t('library.selectGroup', undefined, translateGroup(g))}
                           >
                             <Text style={[styles.chipText, active && styles.chipTextActive]}>
                               {translateGroup(g)}
@@ -366,7 +364,7 @@ export default function AllExercisesScreen() {
                         !isLast && styles.exerciseRowDivider,
                         isSelected && styles.exerciseRowActive,
                       ]}
-                      accessibilityLabel={t('library.selectExercise', displayName)}
+                      accessibilityLabel={t('library.selectExercise', undefined, displayName)}
                       accessibilityRole="button"
                     >
                       <View style={styles.exerciseNameWrapper}>
@@ -423,7 +421,7 @@ export default function AllExercisesScreen() {
                       style={[styles.chip, active && styles.chipActive]}
                       onPress={() => setMoveGroup(g)}
                       accessibilityRole="button"
-                      accessibilityLabel={t('library.selectGroup', translateGroup(g))}
+                      accessibilityLabel={t('library.selectGroup', undefined, translateGroup(g))}
                     >
                       <Text style={[styles.chipText, active && styles.chipTextActive]}>
                         {translateGroup(g)}
@@ -443,10 +441,10 @@ export default function AllExercisesScreen() {
                     setSelectedExercises([]);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Ta bort övning"
+                  accessibilityLabel={t('library.removeExerciseA11y')}
                 >
                   <Trash2 size={14} color="#fca5a5" />
-                  <Text style={styles.actionButtonText}>Ta bort</Text>
+                  <Text style={styles.actionButtonText}>{t('library.remove')}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -483,10 +481,10 @@ export default function AllExercisesScreen() {
                     setMoveGroup('');
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel="Flytta övning"
+                  accessibilityLabel={t('library.moveExerciseA11y')}
                 >
                   <MoveRight size={14} color={colors.accentBlue} />
-                  <Text style={styles.actionButtonText}>Flytta</Text>
+                  <Text style={styles.actionButtonText}>{t('library.move')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

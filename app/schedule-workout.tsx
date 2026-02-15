@@ -24,8 +24,9 @@ import {
   View,
   SafeAreaView,
 } from 'react-native';
-import { Calendar, DateObject } from 'react-native-calendars';
+import { Calendar } from 'react-native-calendars';
 import GlassCard from '../components/ui/GlassCard';
+import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import { colors, gradients, typography } from '../constants/theme';
 import { Exercise, Template, useWorkouts } from '../context/WorkoutsContext';
 import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
@@ -33,6 +34,7 @@ import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
+import { addDaysISO, parseISODate, todayISO } from '../utils/date';
 
 const MUSCLE_MAP: Record<string, string> = {
   Bröst: 'Bröst',
@@ -46,9 +48,6 @@ const normalizeMuscleGroup = (name: string, translate?: (k: string) => string) =
   MUSCLE_MAP[name] || translate?.('exercises.groups.Övrigt') || 'Övrigt';
 const MUSCLE_GROUPS = ['Bröst', 'Rygg', 'Ben', 'Axlar', 'Armar', 'Övrigt'];
 
-// Fördefinierade övningar – grupperade
-import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
-
 const COLOR_OPTIONS = [
   '#3b82f6', // blå
   '#22c55e', // grön
@@ -56,6 +55,8 @@ const COLOR_OPTIONS = [
   '#e11d48', // röd/rosa
   '#a855f7', // lila
 ];
+
+type CalendarDay = { dateString: string };
 
 export default function ScheduleWorkoutScreen() {
   const router = useRouter();
@@ -74,20 +75,20 @@ export default function ScheduleWorkoutScreen() {
   const [dateError, setDateError] = useState('');
   const [weightError, setWeightError] = useState('');
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
-  const [calendarSeedDate, setCalendarSeedDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [calendarSeedDate, setCalendarSeedDate] = useState<string>(todayISO());
   const openDatePicker = (seed?: string) => {
-    const next = seed && isValidDate(seed) ? seed : new Date().toISOString().slice(0, 10);
+    const next = seed && isValidDate(seed) ? seed : todayISO();
     setCalendarSeedDate(next);
     setShowCalendarPicker(true);
   };
 
   // Datum-hantering: flera datum för samma pass
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayISO();
   const [dateInput, setDateInput] = useState(todayStr);
   const [dates, setDates] = useState<string[]>([todayStr]);
   const quickDates = [
     todayStr,
-    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    addDaysISO(todayStr, 1),
   ];
 
   const mergedLibrary = useMemo(() => {
@@ -140,11 +141,11 @@ export default function ScheduleWorkoutScreen() {
     setShowDetails(true);
   }, [editingId, workouts]);
 
-  const applyTemplate = (t: Template) => {
-    setSelectedTemplateId(t.id);
-    setTitle((prev) => (prev ? prev : t.name));
-    setColor(t.color);
-    const mapped = t.exercises.map((ex) => ({
+  const applyTemplate = (template: Template) => {
+    setSelectedTemplateId(template.id);
+    setTitle((prev) => (prev ? prev : template.name));
+    setColor(template.color);
+    const mapped = template.exercises.map((ex) => ({
       id: `${ex.name}-${Date.now()}-${Math.random()}`,
       name: ex.name,
       sets: ex.sets,
@@ -164,8 +165,7 @@ export default function ScheduleWorkoutScreen() {
   const isValidDate = (value: string) => {
     const m = /^\\d{4}-\\d{2}-\\d{2}$/.test(value);
     if (!m) return false;
-    const d = new Date(value);
-    return !isNaN(d.getTime()) && value === d.toISOString().slice(0, 10);
+    return parseISODate(value) !== null;
   };
 
   const sanitizeNumericInput = (value: string) =>
@@ -182,19 +182,19 @@ export default function ScheduleWorkoutScreen() {
     Haptics.selectionAsync();
     const trimmed = dateInput.trim();
     if (!trimmed || !isValidDate(trimmed)) {
-      setDateError('Ange datum som YYYY-MM-DD');
+      setDateError(t('schedule.dateFormat'));
       return;
     }
     setDateError('');
     if (dates.includes(trimmed)) {
-      Alert.alert('Redan tillagt', 'Detta datum finns redan i listan.');
+      Alert.alert(t('schedule.errorTitle'), t('schedule.dateExists'));
       return;
     }
     setDates((prev) => [...prev, trimmed].sort());
     setDateInput(trimmed);
   };
 
-  const handleCalendarSelect = (day: DateObject) => {
+  const handleCalendarSelect = (day: CalendarDay) => {
     const iso = day.dateString;
     setDateInput(iso);
     setCalendarSeedDate(iso);
@@ -211,7 +211,7 @@ export default function ScheduleWorkoutScreen() {
   const removeDate = (d: string) => {
     Haptics.selectionAsync();
     if (dates.length === 1) {
-      Alert.alert('Fel', 'Du måste ha minst ett datum.');
+      Alert.alert(t('schedule.errorTitle'), t('schedule.dateMin'));
       return;
     }
     setDates((prev) => prev.filter((x) => x !== d));
@@ -251,7 +251,7 @@ export default function ScheduleWorkoutScreen() {
       sets: 1,
       reps: '10',
       weight: 0,
-      muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
+      muscleGroup: t('exercises.groups.Övrigt'),
       performedSets: buildInitialPerformedSets(1, '10', 0),
     };
 
@@ -266,7 +266,7 @@ export default function ScheduleWorkoutScreen() {
 
   const handleConfirmExercises = () => {
     if (selectedExercises.length === 0) {
-      Alert.alert('Inga övningar', 'Lägg till minst en övning först.');
+      Alert.alert(t('schedule.errorTitle'), t('schedule.noExercisesSelect'));
       return;
     }
     setShowDetails(true);
@@ -372,7 +372,7 @@ export default function ScheduleWorkoutScreen() {
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
-      setTitleError('Passet måste ha ett namn.');
+      setTitleError(t('schedule.titleError'));
       return;
     }
     setTitleError('');
@@ -384,7 +384,7 @@ export default function ScheduleWorkoutScreen() {
     const finalDates = Array.from(finalDatesSet).sort();
 
     if (finalDates.length === 0) {
-      Alert.alert('Inga datum', 'Lägg till minst ett datum för passet.');
+      Alert.alert(t('schedule.errorTitle'), t('schedule.dateRequired'));
       return;
     }
 
@@ -584,7 +584,7 @@ export default function ScheduleWorkoutScreen() {
                     setDates([d]);
                     setDateError('');
                   }}
-                  accessibilityLabel={t('schedule.dateQuickA11y', { isToday: d === todayStr, date: d })}
+                  accessibilityLabel={t('schedule.dateQuickA11y', undefined, { isToday: d === todayStr, date: d })}
                   accessibilityRole="button"
                 >
                   <Text
@@ -618,7 +618,7 @@ export default function ScheduleWorkoutScreen() {
                         openDatePicker(d);
                         Haptics.selectionAsync();
                       }}
-                      accessibilityLabel={t('schedule.dateEdit', d)}
+                      accessibilityLabel={t('schedule.dateEdit', undefined, d)}
                       accessibilityRole="button"
                       activeOpacity={0.8}
                     >
@@ -631,7 +631,7 @@ export default function ScheduleWorkoutScreen() {
                   <TouchableOpacity
                     onPress={() => removeDate(d)}
                     activeOpacity={0.8}
-                    accessibilityLabel={t('schedule.dateRemove', d)}
+                    accessibilityLabel={t('schedule.dateRemove', undefined, d)}
                     accessibilityRole="button"
                   >
                     <Text style={styles.removeText}>{t('schedule.remove')}</Text>
@@ -645,13 +645,13 @@ export default function ScheduleWorkoutScreen() {
             <Text style={[styles.label, { marginTop: 10 }]}>{t('schedule.notesLabel')}</Text>
             <TextInput
               value={notes}
-              onChangeText={(t) => {
-                if (t.length > 220) {
+              onChangeText={(value) => {
+                if (value.length > 220) {
                   setNotesError(t('schedule.notesMax'));
-                  setNotes(t.slice(0, 220));
+                  setNotes(value.slice(0, 220));
                 } else {
                   setNotesError('');
-                  setNotes(t);
+                  setNotes(value);
                 }
               }}
               style={[styles.input, styles.notesInput]}
@@ -676,10 +676,8 @@ export default function ScheduleWorkoutScreen() {
                   <Dumbbell size={18} color={colors.accentBlue} />
                 </View>
                 <View>
-                  <Text style={styles.cardTitle}>Välj övningar</Text>
-                  <Text style={styles.cardText}>
-                    Lägg till övningar i passet – från listan eller egna.
-                  </Text>
+                  <Text style={styles.cardTitle}>{t('schedule.exercisesTitle')}</Text>
+                  <Text style={styles.cardText}>{t('schedule.exercisesDesc')}</Text>
                 </View>
               </View>
             </View>
@@ -692,7 +690,7 @@ export default function ScheduleWorkoutScreen() {
                   Haptics.selectionAsync();
                   setShowExerciseList((prev) => !prev);
                 }}
-                accessibilityLabel="Öppna övningsbibliotek"
+                accessibilityLabel={t('schedule.openLibrary')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#022c22" />
@@ -765,12 +763,12 @@ export default function ScheduleWorkoutScreen() {
                       </Text>
                     </View>
                   ) : (
-                    templates.map((t, idx) => {
-                      const active = t.id === selectedTemplateId;
+                    templates.map((template, idx) => {
+                      const active = template.id === selectedTemplateId;
                       const isLast = idx === templates.length - 1;
                       return (
                         <TouchableOpacity
-                          key={t.id}
+                          key={template.id}
                           style={[
                             styles.templateRow,
                             !isLast && styles.templateRowDivider,
@@ -778,24 +776,24 @@ export default function ScheduleWorkoutScreen() {
                           ]}
                           onPress={() => {
                             Haptics.selectionAsync();
-                            applyTemplate(t);
+                            applyTemplate(template);
                           }}
                           activeOpacity={0.85}
-                          accessibilityLabel={t('schedule.templateA11y', t.name)}
+                          accessibilityLabel={t('schedule.templateA11y', undefined, template.name)}
                           accessibilityRole="button"
                         >
                           <View style={styles.templateLeft}>
                             <View
                               style={[
                                 styles.templateDot,
-                                { backgroundColor: t.color || colors.primary },
+                                { backgroundColor: template.color || colors.primary },
                               ]}
                             />
                             <View>
-                              <Text style={styles.templateName}>{t.name}</Text>
-                              {t.description ? (
+                              <Text style={styles.templateName}>{template.name}</Text>
+                              {template.description ? (
                                 <Text style={styles.templateMeta} numberOfLines={1}>
-                                  {t.description}
+                                  {template.description}
                                 </Text>
                               ) : null}
                             </View>
@@ -841,7 +839,7 @@ export default function ScheduleWorkoutScreen() {
                     <TouchableOpacity
                       onPress={() => handleRemoveExercise(ex.id)}
                     >
-                      <Text style={styles.removeText}>Ta bort</Text>
+                      <Text style={styles.removeText}>{t('schedule.remove')}</Text>
                     </TouchableOpacity>
                   </View>
                 ))
@@ -855,7 +853,7 @@ export default function ScheduleWorkoutScreen() {
                 onPress={handleConfirmExercises}
               >
                 <Text style={styles.buttonText}>
-                  Klar med val av övningar
+                  {t('schedule.confirmExercises')}
                 </Text>
               </TouchableOpacity>
             )}
@@ -1446,5 +1444,10 @@ const styles = StyleSheet.create({
   buttonText: {
     ...typography.bodyBold,
     color: '#0b1120',
+  },
+  errorText: {
+    ...typography.caption,
+    color: '#fca5a5',
+    marginTop: 4,
   },
 });

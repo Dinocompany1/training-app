@@ -15,6 +15,7 @@ import { colors, gradients, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
+import { toISODate } from '../utils/date';
 
 type PeriodKey = '7d' | '30d' | '90d' | 'all';
 
@@ -37,13 +38,12 @@ export default function TrainingFrequencyScreen() {
     }
   }, [params.exercise]);
 
-  const now = new Date();
   const cutoff = useMemo(() => {
     if (period === 'all') return null;
     const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
     const d = new Date();
     d.setDate(d.getDate() - days);
-    return d.toISOString().slice(0, 10);
+    return toISODate(d);
   }, [period]);
 
   const completed = useMemo(
@@ -54,18 +54,6 @@ export default function TrainingFrequencyScreen() {
       }),
     [workouts, cutoff]
   );
-
-  const exercises = useMemo(() => {
-    const names = new Set<string>();
-    workouts
-      .filter((w) => w.isCompleted)
-      .forEach((w) =>
-        (w.exercises || []).forEach((ex) => {
-          if (ex.name) names.add(ex.name);
-        })
-      );
-    return Array.from(names).sort();
-  }, [workouts]);
 
   const filtered = useMemo(() => {
     return completed.flatMap((w) =>
@@ -145,29 +133,6 @@ export default function TrainingFrequencyScreen() {
       .sort((a, b) => b.month.localeCompare(a.month));
   }, [filtered]);
 
-  const lifetime = useMemo(() => {
-    const all = workouts.filter((w) => w.isCompleted).flatMap((w) =>
-      (w.exercises || [])
-        .filter((ex) => ex.name && (!selected || ex.name === selected))
-        .map((ex) => ({
-          sets: ex.sets || 0,
-          reps: Number(ex.reps) || 0,
-          volume:
-            ex.performedSets?.reduce((acc, s) => {
-              const repsNum = Number(String(s.reps)) || 0;
-              const wt = Number(s.weight) || 0;
-              return acc + repsNum * wt;
-            }, 0) || 0,
-        }))
-    );
-    return {
-      sessions: all.length,
-      sets: all.reduce((s, r) => s + r.sets, 0),
-      reps: all.reduce((s, r) => s + r.reps, 0),
-      volume: all.reduce((s, r) => s + r.volume, 0),
-    };
-  }, [workouts, selected]);
-
   const topExercises = useMemo(() => {
     const map = new Map<
       string,
@@ -224,14 +189,14 @@ export default function TrainingFrequencyScreen() {
           </View>
           <Text style={styles.title}>
             {selected
-              ? `${t('stats.freqTitle', 'Träningsfrekvens')} · ${selected}`
-              : t('stats.freqTitle', 'Träningsfrekvens')}
+              ? `${t('stats.freqTitle')} · ${selected}`
+              : t('stats.freqTitle')}
           </Text>
           <Text style={styles.subtitle}>
-            {t('stats.freqSubtitle', 'Se hur ofta och hur mycket du tränar en övning.')}
+            {t('stats.freqSubtitle')}
           </Text>
           <Text style={styles.metaLine}>
-            {t(`stats.filters.${period}`, period)} · {selected || t('stats.freqSelectTitle', 'Välj övning')}
+            {t(`stats.filters.${period}`)} · {selected || t('stats.freqSelectTitle')}
           </Text>
         </View>
 
@@ -245,7 +210,7 @@ export default function TrainingFrequencyScreen() {
                 onPress={() => setPeriod(p)}
               >
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {t(`stats.filters.${p}`, p)}
+                  {t(`stats.filters.${p}`)}
                 </Text>
               </TouchableOpacity>
             );
@@ -261,43 +226,43 @@ export default function TrainingFrequencyScreen() {
             activeOpacity={0.9}
           >
             <Text style={[styles.chipText, styles.chipTextActive]}>
-              {selected || t('stats.freqSelectTitle', 'Välj övning')}
+              {selected || t('stats.freqSelectTitle')}
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* Sammanfattning */}
         <GlassCard style={[styles.card, styles.section]} elevated={false}>
-          <Text style={styles.cardTitle}>{t('stats.freqSummary', 'Sammanfattning')}</Text>
+          <Text style={styles.cardTitle}>{t('stats.freqSummary')}</Text>
           <View style={styles.summaryGrid}>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Pass</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqSessions')}</Text>
               <Text style={styles.summaryValue}>{summary.sessions}</Text>
             </View>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Set</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqSets')}</Text>
               <Text style={styles.summaryValue}>{summary.totalSets}</Text>
             </View>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Reps</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqReps')}</Text>
               <Text style={styles.summaryValue}>{summary.totalReps}</Text>
             </View>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Volym</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqVolume')}</Text>
               <Text style={styles.summaryValue}>{Math.round(summary.totalVolume)}</Text>
             </View>
           </View>
           <View style={styles.summaryGrid}>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Snitt set/pass</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqAvgSets')}</Text>
               <Text style={styles.summaryValue}>{summary.avgSets}</Text>
             </View>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Snitt reps/pass</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqAvgReps')}</Text>
               <Text style={styles.summaryValue}>{summary.avgReps}</Text>
             </View>
             <View style={styles.summaryBox}>
-              <Text style={styles.summaryLabel}>Snitt volym/pass</Text>
+              <Text style={styles.summaryLabel}>{t('stats.freqAvgVolume')}</Text>
               <Text style={styles.summaryValue}>{summary.avgVolume}</Text>
             </View>
           </View>
@@ -305,9 +270,9 @@ export default function TrainingFrequencyScreen() {
 
         {/* Frekvens över tid */}
         <GlassCard style={[styles.card, styles.section]} elevated={false}>
-          <Text style={styles.cardTitle}>{t('stats.freqOverTime', 'Frekvens över tid')}</Text>
+          <Text style={styles.cardTitle}>{t('stats.freqOverTime')}</Text>
           {grouped.length === 0 ? (
-            <Text style={styles.emptyText}>{t('stats.freqEmpty', 'Inga pass i vald period.')}</Text>
+            <Text style={styles.emptyText}>{t('stats.freqEmpty')}</Text>
           ) : (
             grouped.map((g) => {
               const barWidth = Math.min(100, g.sessions * 12 + 20);
@@ -315,14 +280,14 @@ export default function TrainingFrequencyScreen() {
                 <View key={g.month} style={styles.freqRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.freqMonth}>{g.month}</Text>
-                    <Text style={styles.freqValue}>
-                      {g.sessions} {t('stats.muscleSortSessions', 'Pass')} · {g.sets} set · {g.reps} reps
-                    </Text>
+                  <Text style={styles.freqValue}>
+                      {g.sessions} {t('stats.muscleSortSessions')} · {g.sets} set · {g.reps} reps
+                  </Text>
                   </View>
                   <View style={styles.miniBarBg}>
                     <View style={[styles.miniBarFill, { width: `${barWidth}%` }]} />
                   </View>
-                  <Text style={styles.freqValueSmall}>{Math.round(g.volume)} vol</Text>
+                  <Text style={styles.freqValueSmall}>{Math.round(g.volume)} {t('stats.freqVolumeShort')}</Text>
                 </View>
               );
             })
@@ -331,7 +296,7 @@ export default function TrainingFrequencyScreen() {
 
         {/* Mest tränade övningar */}
         <GlassCard style={[styles.card, styles.section]} elevated={false}>
-          <Text style={styles.cardTitle}>{t('stats.freqTop', 'Mest tränade övningar')}</Text>
+          <Text style={styles.cardTitle}>{t('stats.freqTop')}</Text>
           <View style={styles.filterRow}>
             {['sessions', 'sets', 'reps', 'volume'].map((opt) => {
               const active = topSort === opt;
@@ -343,12 +308,12 @@ export default function TrainingFrequencyScreen() {
                 >
                   <Text style={[styles.chipText, active && styles.chipTextActive]}>
                     {opt === 'sessions'
-                      ? t('stats.muscleSortSessions', 'Pass')
+                      ? t('stats.muscleSortSessions')
                       : opt === 'sets'
-                      ? t('stats.muscleSortSets', 'Set')
+                      ? t('stats.muscleSortSets')
                       : opt === 'reps'
-                      ? t('stats.muscleSortReps', 'Reps')
-                      : t('stats.muscleSortVolume', 'Volym')}
+                      ? t('stats.muscleSortReps')
+                      : t('stats.muscleSortVolume')}
                   </Text>
                 </TouchableOpacity>
               );
@@ -356,21 +321,21 @@ export default function TrainingFrequencyScreen() {
           </View>
           {topExercises.length === 0 ? (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>{t('stats.freqEmpty', 'Inga pass i vald period.')}</Text>
+              <Text style={styles.emptyText}>{t('stats.freqEmpty')}</Text>
               <View style={styles.emptyActions}>
                 <TouchableOpacity
                   style={[styles.chip, styles.chipActive]}
                   onPress={() => router.push('/workout/quick-workout')}
                   accessibilityRole="button"
                 >
-                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.start', 'Starta pass')}</Text>
+                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.start')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.chip, styles.chipActive]}
                   onPress={() => router.push('/schedule-workout')}
                   accessibilityRole="button"
                 >
-                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.weekEmptyCTA', 'Planera')}</Text>
+                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.weekEmptyCTA')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -380,17 +345,17 @@ export default function TrainingFrequencyScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.passDate}>{ex.name}</Text>
                   <Text style={styles.passMeta}>
-                    {ex.sessions} pass · {ex.sets} set · {ex.reps} reps
+                    {ex.sessions} {t('stats.freqSessions').toLowerCase()} · {ex.sets} {t('stats.freqSets').toLowerCase()} · {ex.reps} {t('stats.freqReps').toLowerCase()}
                   </Text>
                 </View>
                 <Text style={styles.passWeight}>
                   {topSort === 'sessions'
-                    ? `${ex.sessions} pass`
+                    ? `${ex.sessions} ${t('stats.freqSessions').toLowerCase()}`
                     : topSort === 'sets'
-                    ? `${ex.sets} set`
+                    ? `${ex.sets} ${t('stats.freqSets').toLowerCase()}`
                     : topSort === 'reps'
-                    ? `${ex.reps} reps`
-                    : `${Math.round(ex.volume)} vol`}
+                    ? `${ex.reps} ${t('stats.freqReps').toLowerCase()}`
+                    : `${Math.round(ex.volume)} ${t('stats.freqVolumeShort')}`}
                 </Text>
               </View>
             ))
@@ -399,24 +364,24 @@ export default function TrainingFrequencyScreen() {
 
         {/* Detalj per pass */}
         <GlassCard style={[styles.card, styles.section]} elevated={false}>
-          <Text style={styles.cardTitle}>{t('stats.freqDetails', 'Detaljer per pass')}</Text>
+          <Text style={styles.cardTitle}>{t('stats.freqDetails')}</Text>
           {filtered.length === 0 ? (
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>{t('stats.freqEmpty', 'Inga pass i vald period.')}</Text>
+              <Text style={styles.emptyText}>{t('stats.freqEmpty')}</Text>
               <View style={styles.emptyActions}>
                 <TouchableOpacity
                   style={[styles.chip, styles.chipActive]}
                   onPress={() => router.push('/workout/quick-workout')}
                   accessibilityRole="button"
                 >
-                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.start', 'Starta pass')}</Text>
+                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.start')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.chip, styles.chipActive]}
                   onPress={() => router.push('/schedule-workout')}
                   accessibilityRole="button"
                 >
-                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.weekEmptyCTA', 'Planera')}</Text>
+                  <Text style={[styles.chipText, styles.chipTextActive]}>{t('home.weekEmptyCTA')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -429,7 +394,7 @@ export default function TrainingFrequencyScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.passDate}>{r.workoutDate}</Text>
                     <Text style={styles.passMeta}>
-                      {r.sets} set · {r.reps} reps · {Math.round(r.volume)} volym
+                      {r.sets} {t('stats.freqSets').toLowerCase()} · {r.reps} {t('stats.freqReps').toLowerCase()} · {Math.round(r.volume)} {t('stats.freqVolume').toLowerCase()}
                     </Text>
                   </View>
                   <Text style={styles.passWeight}>{r.maxWeight > 0 ? `${r.maxWeight} kg` : '–'}</Text>
@@ -501,15 +466,6 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: colors.primary,
-  },
-  cardTitle: {
-    ...typography.title,
-    color: '#e5e7eb',
-  },
-  cardText: {
-    ...typography.caption,
-    color: '#cbd5e1',
-    marginTop: 2,
   },
   cardTitle: {
     ...typography.title,

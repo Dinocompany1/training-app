@@ -41,13 +41,14 @@ export default function BadgePill({ label, tone = 'neutral', style, onPress }: P
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
   },
   text: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   primary: {

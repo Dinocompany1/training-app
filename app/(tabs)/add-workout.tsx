@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import {
   CalendarClock,
   Dumbbell,
-  Play,
   PlusCircle,
   ListChecks,
   Flame,
@@ -101,7 +100,6 @@ export default function AddWorkoutScreen() {
               }}
               variant="green"
               accessibilityLabel={t('add.quickA11y')}
-              accessibilityRole="button"
               toastMessage={t('add.quickToast')}
             />
           </GlassCard>
@@ -141,6 +139,9 @@ const styles = StyleSheet.create({
   },
   full: {
     flex: 1,
+  },
+  spotlight: {
+    ...StyleSheet.absoluteFillObject,
   },
   container: {
     flex: 1,

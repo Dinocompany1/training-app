@@ -29,7 +29,7 @@ export default function TemplatesScreen() {
   const handleDelete = (template: Template) => {
     Alert.alert(
       t('templates.deleteTitle'),
-      t('templates.deleteConfirm', template.name),
+      t('templates.deleteConfirm', undefined, template.name),
       [
         { text: t('templates.cancel'), style: 'cancel' },
         {
@@ -95,13 +95,13 @@ export default function TemplatesScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{item.name}</Text>
                   <Text style={styles.cardMeta}>
-                    {t('templates.metaExercises', item.exercises.length)}
+                    {t('templates.metaExercises', undefined, item.exercises.length)}
                     {item.description ? ` · ${item.description}` : ''}
                   </Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => handleDelete(item)}
-                  accessibilityLabel={t('templates.removeA11y', item.name)}
+                  accessibilityLabel={t('templates.removeA11y', undefined, item.name)}
                   accessibilityRole="button"
                 >
                   <Trash2 size={18} color="#fca5a5" />
@@ -115,7 +115,7 @@ export default function TemplatesScreen() {
                 ))}
                 {item.exercises.length > 3 && (
                   <Text style={styles.exerciseTag}>
-                    {t('templates.moreCount', item.exercises.length - 3)}
+                    {t('templates.moreCount', undefined, item.exercises.length - 3)}
                   </Text>
                 )}
               </View>

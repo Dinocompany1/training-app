@@ -104,7 +104,7 @@ export default function RoutineBuilderScreen() {
         sets: 3,
         reps: '10',
         weight: 0,
-        muscleGroup: normalizeMuscleGroup(groupEntry?.group || t('exercises.groups.Övrigt', 'Övrigt'), t),
+        muscleGroup: normalizeMuscleGroup(groupEntry?.group || t('exercises.groups.Övrigt'), t),
       };
       setSelectedExercises((prev) => [...prev, newExercise]);
     }
@@ -396,7 +396,7 @@ export default function RoutineBuilderScreen() {
           )}
 
             {/* Namn */}
-            <Text style={styles.label}>{t('common.name', t('routineBuilder.infoTitle'))}</Text>
+            <Text style={styles.label}>{t('common.name')}</Text>
             <TextInput
               value={title}
               onChangeText={setTitle}
@@ -406,7 +406,7 @@ export default function RoutineBuilderScreen() {
             />
 
             {/* Anteckningar */}
-            <Text style={[styles.label, { marginTop: 10 }]}>{t('common.notes', 'Anteckningar')}</Text>
+            <Text style={[styles.label, { marginTop: 10 }]}>{t('common.notes')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
@@ -499,7 +499,7 @@ export default function RoutineBuilderScreen() {
                          setCustomName('');
                          setShowCustomInput(false);
                        }}
-                        accessibilityLabel={t('routineBuilder.selectMuscle', `Välj muskelgrupp ${mg}`, mg)}
+                        accessibilityLabel={t('routineBuilder.selectMuscle', undefined, mg)}
                         accessibilityRole="button"
                      >
                         <Text
@@ -594,9 +594,9 @@ export default function RoutineBuilderScreen() {
           {/* DETALJKORT – SETS / REPS / VIKT */}
           {showDetails && selectedExercises.length > 0 && (
             <GlassCard style={styles.card}>
-              <Text style={styles.cardTitle}>{t('routineBuilder.detailsTitle', 'Detaljer för övningar')}</Text>
+              <Text style={styles.cardTitle}>{t('routineBuilder.detailsTitle')}</Text>
               <Text style={styles.cardText}>
-                {t('routineBuilder.detailsSubtitle', 'Fyll i reps och vikt per set. Lägg till fler set vid behov.')}
+                {t('routineBuilder.detailsSubtitle')}
               </Text>
 
               {selectedExercises.map((ex) => {
@@ -642,7 +642,7 @@ export default function RoutineBuilderScreen() {
             style={[styles.button, styles.saveButton]}
             onPress={handleSaveRoutine}
           >
-            <Text style={styles.buttonText}>{t('routineBuilder.saveButton', 'Save routine')}</Text>
+            <Text style={styles.buttonText}>{t('routineBuilder.saveButton')}</Text>
           </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>

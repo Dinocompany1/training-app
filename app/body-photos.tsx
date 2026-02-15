@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { Camera, Trash2 } from 'lucide-react-native';
+import { Trash2 } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -15,11 +15,13 @@ import {
   View,
 } from 'react-native';
 import GlassCard from '../components/ui/GlassCard';
+import BackPill from '../components/ui/BackPill';
 import { colors, gradients, typography } from '../constants/theme';
 import { BodyPhoto, useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
+import { compareISODate, todayISO } from '../utils/date';
 
-const todayStr = new Date().toISOString().slice(0, 10);
+const todayStr = todayISO();
 
 export default function BodyPhotosScreen() {
   const router = useRouter();
@@ -33,7 +35,7 @@ export default function BodyPhotosScreen() {
 
   const sorted = useMemo(() => {
     return [...bodyPhotos].sort((a, b) => {
-      const timeDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      const timeDiff = compareISODate(b.date, a.date);
       if (timeDiff !== 0) return timeDiff;
       return (Number(b.id) || 0) - (Number(a.id) || 0);
     });
@@ -97,11 +99,9 @@ export default function BodyPhotosScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.backText}>{t('bodyPhotos.back')}</Text>
-          </TouchableOpacity>
+          <BackPill onPress={() => router.back()} />
           <Text style={styles.title}>{t('bodyPhotos.title')}</Text>
-          <View style={{ width: 70 }} />
+          <View style={styles.headerSpacer} />
         </View>
         <GlassCard style={styles.card}>
           <Text style={styles.cardHeading}>{t('bodyPhotos.title')}</Text>
@@ -196,9 +196,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
   },
-  backText: {
-    ...typography.caption,
-    color: colors.textSoft,
+  headerSpacer: {
+    width: 44,
   },
   title: {
     ...typography.title,

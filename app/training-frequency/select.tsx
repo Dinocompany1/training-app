@@ -40,17 +40,17 @@ export default function TrainingFrequencySelectScreen() {
         <View style={styles.backRow}>
           <BackPill onPress={() => router.replace('/training-frequency')} />
         </View>
-        <Text style={styles.title}>{t('stats.freqSelectTitle', 'Välj övning')}</Text>
-        <Text style={styles.subtitle}>{t('stats.freqSelectSub', 'Vilken övning vill du se träningsfrekvens för?')}</Text>
+        <Text style={styles.title}>{t('stats.freqSelectTitle')}</Text>
+        <Text style={styles.subtitle}>{t('stats.freqSelectSub')}</Text>
 
         <GlassCard style={styles.card} elevated={false}>
           <TouchableOpacity
             style={styles.row}
             onPress={() => router.replace('/training-frequency')}
             accessibilityRole="button"
-            accessibilityLabel={t('stats.filters.all', 'Alla övningar')}
+            accessibilityLabel={t('stats.filters.all')}
           >
-            <Text style={styles.name}>{t('stats.filters.all', 'Alla övningar')}</Text>
+            <Text style={styles.name}>{t('stats.filters.all')}</Text>
           </TouchableOpacity>
         </GlassCard>
 

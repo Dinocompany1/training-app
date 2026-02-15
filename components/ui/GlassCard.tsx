@@ -1,7 +1,6 @@
 // components/ui/GlassCard.tsx
 import React from 'react';
 import {
-    Platform,
     StyleProp,
     StyleSheet,
     TouchableOpacity,
@@ -24,7 +23,7 @@ export default function GlassCard({ children, style, onPress, elevated = true }:
     <Wrapper
       activeOpacity={onPress ? 0.85 : undefined}
       onPress={onPress}
-      style={[styles.container, !elevated && styles.flatShadow]}
+      style={[styles.container, elevated ? styles.elevatedShadow : styles.flatShadow]}
     >
       {content}
     </Wrapper>
@@ -35,6 +34,13 @@ const styles = StyleSheet.create({
   container: {
     borderRadius: 24,
     overflow: 'hidden',
+  },
+  elevatedShadow: {
+    shadowColor: '#000',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
   },
   inner: {
     paddingHorizontal: 16,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { colors } from '../../constants/theme';
+import { useTranslation } from '../../context/TranslationContext';
 
 export type DetailSet = { reps: string; weight: number | string };
 
@@ -23,6 +24,8 @@ export default function ExerciseDetailCard({
   onChangeSet,
   onAddSet,
 }: Props) {
+  const { t } = useTranslation();
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
@@ -38,7 +41,7 @@ export default function ExerciseDetailCard({
                 key={`${name}-${mg}`}
                 style={[styles.muscleChip, active && styles.muscleChipActive]}
                 onPress={() => onSelectMuscle(mg)}
-                accessibilityLabel={`Välj muskelgrupp ${mg}`}
+                accessibilityLabel={t('routineBuilder.selectMuscle', undefined, mg)}
                 accessibilityRole="button"
               >
                 <Text style={[styles.muscleChipText, active && styles.muscleChipTextActive]}>
@@ -53,10 +56,10 @@ export default function ExerciseDetailCard({
       <View style={styles.setList}>
         {sets.map((setItem, idx) => (
           <View key={`${name}-set-${idx}`} style={styles.setRow}>
-            <Text style={styles.setLabel}>Set {idx + 1}</Text>
+            <Text style={styles.setLabel}>{t('workoutDetail.setLabel', undefined, idx + 1)}</Text>
             <View style={styles.setInputs}>
               <View style={styles.detailInputGroup}>
-                <Text style={styles.detailLabel}>Reps</Text>
+                <Text style={styles.detailLabel}>{t('exerciseDetail.reps')}</Text>
                 <TextInput
                   style={styles.detailInput}
                   keyboardType="numeric"
@@ -65,7 +68,7 @@ export default function ExerciseDetailCard({
                 />
               </View>
               <View style={styles.detailInputGroup}>
-                <Text style={styles.detailLabel}>Kg</Text>
+                <Text style={styles.detailLabel}>{t('common.kg')}</Text>
                 <TextInput
                   style={styles.detailInput}
                   keyboardType="numeric"
@@ -80,10 +83,10 @@ export default function ExerciseDetailCard({
           style={styles.addSetButton}
           onPress={onAddSet}
           activeOpacity={0.9}
-          accessibilityLabel="Lägg till set"
+          accessibilityLabel={t('routineBuilder.addSet')}
           accessibilityRole="button"
         >
-          <Text style={styles.addSetText}>+ Lägg till set</Text>
+          <Text style={styles.addSetText}>{t('routineBuilder.addSet')}</Text>
         </TouchableOpacity>
       </View>
     </View>

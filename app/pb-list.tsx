@@ -15,10 +15,11 @@ import { colors, gradients, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
+import { compareISODate, formatDateShort } from '../utils/date';
 
 export default function PBListScreen() {
   const { workouts } = useWorkouts();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const router = useRouter();
   const [sort, setSort] = useState<'date' | 'value' | 'name'>('date');
   const [category, setCategory] = useState<string>('alla');
@@ -41,7 +42,7 @@ export default function PBListScreen() {
     // Bygg PB-händelser: varje gång vikten slår tidigare max
     const events: PBEvent[] = [];
     map.forEach((list) => {
-      const sorted = list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const sorted = list.sort((a, b) => compareISODate(a.date, b.date));
       let best = 0;
       sorted.forEach((ev) => {
         if (ev.weight > best) {
@@ -54,24 +55,15 @@ export default function PBListScreen() {
 
     // Sammanfattning
     const activePBs = events.length;
-    const latest = [...events].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const latest = [...events].sort((a, b) => compareISODate(b.date, a.date))[0];
     const totalImprovement = events.reduce((sum, ev) => sum + (ev.delta ?? 0), 0);
 
     const categories = Array.from(
       new Set(events.map((e) => e.muscle || 'Övrigt'))
     );
 
-    // Lista per övning: bara senaste PB per övning
-    const latestPerExercise = new Map<string, PBEvent>();
-    events.forEach((ev) => {
-      const curr = latestPerExercise.get(ev.name);
-      if (!curr || new Date(ev.date).getTime() > new Date(curr.date).getTime()) {
-        latestPerExercise.set(ev.name, ev);
-      }
-    });
-
     return {
-      pbs: Array.from(latestPerExercise.values()),
+      pbs: events,
       summary: { activePBs, latest, totalImprovement },
       categories,
     };
@@ -84,7 +76,7 @@ export default function PBListScreen() {
   const sorted = [...filtered].sort((a, b) => {
     if (sort === 'value') return b.weight - a.weight;
     if (sort === 'name') return a.name.localeCompare(b.name);
-    return new Date(b.date).getTime() - new Date(a.date).getTime();
+    return compareISODate(b.date, a.date);
   });
 
   return (
@@ -98,19 +90,19 @@ export default function PBListScreen() {
         <View style={styles.backRow}>
           <BackPill onPress={() => router.back()} />
         </View>
-        <Text style={styles.title}>{t('stats.pbTitle', 'PB')}</Text>
+        <Text style={styles.title}>{t('stats.pbTitle')}</Text>
         <Text style={styles.subtitle}>
-          {t('stats.pbSubtitle', 'Dina senaste personbästa i perioden.')}
+          {t('stats.pbSubtitle')}
         </Text>
 
         <GlassCard style={styles.summaryCard} elevated={false}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>{t('stats.pbActive', 'Aktiva PB')}</Text>
+              <Text style={styles.summaryLabel}>{t('stats.pbActive')}</Text>
               <Text style={styles.summaryValue}>{summary.activePBs}</Text>
             </View>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>{t('stats.pbLatest', 'Senaste PB')}</Text>
+              <Text style={styles.summaryLabel}>{t('stats.pbLatest')}</Text>
               <Text style={styles.summaryValue}>
                 {summary.latest ? `${summary.latest.name} · ${summary.latest.date}` : '–'}
               </Text>
@@ -118,7 +110,7 @@ export default function PBListScreen() {
           </View>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>{t('stats.pbTotalImprovement', 'Total förbättring')}</Text>
+              <Text style={styles.summaryLabel}>{t('stats.pbTotalImprovement')}</Text>
               <Text style={styles.summaryValue}>{Math.round(summary.totalImprovement)} kg</Text>
             </View>
           </View>
@@ -135,10 +127,10 @@ export default function PBListScreen() {
               >
                 <Text style={[styles.sortText, active && styles.sortTextActive]}>
                   {opt === 'date'
-                    ? t('stats.sortDate', 'Datum')
+                    ? t('stats.sortDate')
                     : opt === 'value'
-                    ? t('stats.sortValue', 'Vikt')
-                    : t('stats.sortName', 'Namn')}
+                    ? t('stats.sortValue')
+                    : t('stats.sortName')}
                 </Text>
               </TouchableOpacity>
             );
@@ -151,7 +143,7 @@ export default function PBListScreen() {
             onPress={() => setCategory('alla')}
           >
             <Text style={[styles.sortText, category === 'alla' && styles.sortTextActive]}>
-              {t('stats.filters.all', 'Alla')}
+              {t('stats.filters.all')}
             </Text>
           </TouchableOpacity>
           {categories.map((cat) => {
@@ -170,11 +162,12 @@ export default function PBListScreen() {
 
         {sorted.length === 0 ? (
           <Text style={styles.emptyText}>
-            {t('stats.pbEmpty', 'Inga PB registrerade ännu. Logga vikter i dina pass för att se PB här.')}
+            {t('stats.pbEmpty')}
           </Text>
         ) : (
-          sorted.map((pb) => (
-            <GlassCard key={pb.name} style={styles.card} elevated={false}>
+          <>
+            {sorted.map((pb, idx) => (
+            <GlassCard key={`${pb.name}-${pb.date}-${pb.weight}-${idx}`} style={styles.card} elevated={false}>
               <TouchableOpacity
                 activeOpacity={0.9}
                 onPress={() =>
@@ -187,15 +180,21 @@ export default function PBListScreen() {
                 accessibilityLabel={`Öppna ${pb.name}`}
               >
                 <View style={styles.row}>
-                  <View>
+                  <View style={{ flex: 1.4 }}>
                     <Text style={styles.pbName}>{pb.name}</Text>
-                    <Text style={styles.pbDate}>{pb.date}</Text>
+                    {pb.delta != null ? (
+                      <Text style={styles.pbDate}>{t('stats.pbDelta', undefined, pb.delta)}</Text>
+                    ) : null}
                   </View>
-                  <Text style={styles.pbWeight}>{pb.weight} kg</Text>
+                  <Text style={[styles.pbDate, { flex: 1, textAlign: 'center' }]}>
+                    {formatDateShort(pb.date, lang)}
+                  </Text>
+                  <Text style={[styles.pbWeight, { flex: 1, textAlign: 'right' }]}>{pb.weight} kg</Text>
                 </View>
               </TouchableOpacity>
             </GlassCard>
-          ))
+          ))}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -206,8 +205,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: 18,
+    paddingTop: 14,
   },
   backRow: {
     paddingTop: 8,
@@ -221,14 +220,14 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSoft,
     marginTop: 4,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   emptyText: {
     ...typography.caption,
     color: colors.textSoft,
   },
   summaryCard: {
-    marginTop: 10,
+    marginTop: 8,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -236,11 +235,12 @@ const styles = StyleSheet.create({
   },
   summaryItem: {
     flex: 1,
-    padding: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
   },
   summaryLabel: {
     ...typography.micro,
@@ -252,12 +252,14 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   card: {
-    marginTop: 10,
+    marginTop: 8,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
   },
   pbName: {
     ...typography.bodyBold,
@@ -265,11 +267,11 @@ const styles = StyleSheet.create({
   },
   pbDate: {
     ...typography.micro,
-    color: colors.textSoft,
+    color: colors.textMuted,
   },
   pbWeight: {
-    ...typography.title,
-    color: colors.textMain,
+    ...typography.bodyBold,
+    color: colors.accentGreen,
   },
   filterRow: {
     flexDirection: 'row',
@@ -278,12 +280,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   sortChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
   },
   sortChipActive: {
     borderColor: colors.primary,

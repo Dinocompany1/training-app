@@ -1,23 +1,19 @@
 // app/(tabs)/stats.tsx
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { FlatList } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  Activity,
   BarChart3,
-  CheckCircle2,
+  Sparkles,
   Clock,
-  Dumbbell as DumbbellIcon,
   Dumbbell,
-  Flame,
-  Image as ImageIcon,
-  Target,
   TrendingUp,
+  TrendingDown,
+  Minus,
   Trophy,
   X,
 } from 'lucide-react-native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -27,15 +23,15 @@ import {
   SafeAreaView,
   Modal,
 } from 'react-native';
-import { Calendar, DateObject } from 'react-native-calendars';
+import { Calendar } from 'react-native-calendars';
 import GlassCard from '../../components/ui/GlassCard';
-import GlowProgressBar from '../../components/ui/GlowProgressBar';
-import NeonButton from '../../components/ui/NeonButton';
 import BadgePill from '../../components/ui/BadgePill';
-import { colors, gradients, typography } from '../../constants/theme';
+import { colors, gradients, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
-import SkeletonCard from '../../components/ui/SkeletonCard';
 import { useTranslation } from '../../context/TranslationContext';
+import { compareISODate, formatDateShort, parseISODate, toISODate } from '../../utils/date';
+import storage from '../../utils/safeStorage';
+import { getAIInsight, type AIInsightResponse, type AIInsightRequest } from '../../utils/aiInsights';
 
 const parseRepsValue = (reps: string) => {
   if (!reps) return 0;
@@ -47,20 +43,55 @@ const parseRepsValue = (reps: string) => {
   return Math.max(0, Math.round(avg));
 };
 
+type TrendMetric = 'sessions' | 'minutes' | 'volume';
+
 const parseWeightValue = (w?: number) => {
   if (w == null) return 0;
   const num = Number(w);
   return Number.isFinite(num) && num >= 0 ? num : 0;
 };
 
-const normalizeMuscleLabel = (name?: string) => {
-  const trimmed = (name || '').trim();
-  return trimmed.length > 0 ? trimmed : 'Övrigt';
+const startOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const startOfWeekDate = (date: Date) => {
+  const dayOnly = startOfDay(date);
+  const day = dayOnly.getDay();
+  const diff = (day + 6) % 7;
+  dayOnly.setDate(dayOnly.getDate() - diff);
+  return dayOnly;
+};
+
+const workoutVolume = (workout: { exercises?: any[] }) =>
+  (workout.exercises || []).reduce((v, ex) => {
+    const sets = ex.performedSets && ex.performedSets.length > 0 ? ex.performedSets : [];
+    if (sets.length === 0) {
+      const repsNum = parseRepsValue(ex.reps);
+      return v + ex.sets * repsNum * parseWeightValue(ex.weight);
+    }
+    return (
+      v +
+      sets.reduce((acc: number, s: { reps: string; weight?: number }) => {
+        const repsNum = parseRepsValue(String(s.reps));
+        const wt = parseWeightValue(s.weight);
+        return acc + repsNum * wt;
+      }, 0)
+    );
+  }, 0);
+
+const formatTrendMetricValue = (
+  value: number,
+  metric: TrendMetric,
+  t: (path: string, fallback?: string | ((...args: any[]) => string), args?: any) => string
+) => {
+  if (metric === 'sessions') return t('stats.trendMetricSessionsValue', undefined, Math.round(value));
+  if (metric === 'minutes') return t('stats.trendMetricMinutesValue', undefined, Math.round(value));
+  return t('stats.trendMetricVolumeValue', undefined, Math.round(value));
 };
 
 export default function StatsScreen() {
   const router = useRouter();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
   const { workouts, weeklyGoal } = useWorkouts();
   const completedWorkouts = useMemo(
     () => (workouts || []).filter((w) => w.isCompleted),
@@ -71,151 +102,98 @@ export default function StatsScreen() {
   const [customEnd, setCustomEnd] = useState<Date | null>(null);
   const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('sessions');
+  const [topSort, setTopSort] = useState<'sessions' | 'volume' | 'weight'>('sessions');
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
+  const [selectedTrendIndex, setSelectedTrendIndex] = useState<number | null>(null);
+  const [aiInsight, setAiInsight] = useState<AIInsightResponse | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
-  const today = new Date();
-  const todayOnly = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  );
-  const formatShortDate = (d: string) => {
-    const parsed = new Date(d);
-    if (Number.isNaN(parsed.getTime())) return d;
-    return new Intl.DateTimeFormat('sv-SE', {
-      day: '2-digit',
-      month: 'short',
-    }).format(parsed);
-  };
+  const resetStatsFilters = useCallback(() => {
+    setPeriod('7d');
+    setCustomStart(null);
+    setCustomEnd(null);
+    setTrendMetric('sessions');
+    setTopSort('sessions');
+    setShowCustomPicker(false);
+    setActivePicker(null);
+  }, []);
 
-  const todayStr = today.toISOString().slice(0, 10);
-  const formatDate = (d: Date) => d.toISOString().slice(0, 10);
-  // Veckobörjan (måndag)
-  const startOfWeek = useMemo(() => {
-    const d = new Date(todayOnly);
-    const day = d.getDay(); // 0=sön
-    const diff = (day + 6) % 7; // hur många dagar sedan måndag
-    d.setDate(d.getDate() - diff);
-    return d;
-  }, [todayOnly]);
+  const todayOnly = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }, []);
+  const formatShortDate = useCallback((d: string) => formatDateShort(d, lang), [lang]);
+  const formatDate = (d: Date) => toISODate(d);
 
-  const startOfMonth = useMemo(() => {
-    return new Date(today.getFullYear(), today.getMonth(), 1);
-  }, [today]);
-
-  const {
-    workoutsThisWeek,
-    workoutsThisMonth,
-    totalWorkouts,
-    uniqueDaysCount,
-    avgPerWeek,
-  } = useMemo(() => {
-    if (!completedWorkouts || completedWorkouts.length === 0) {
-      return {
-        workoutsThisWeek: [] as typeof completedWorkouts,
-        workoutsThisMonth: [] as typeof completedWorkouts,
-        totalWorkouts: 0,
-        uniqueDaysCount: 0,
-        avgPerWeek: 0,
-      };
-    }
-
-    const thisWeek = completedWorkouts.filter((w) => {
-      const d = new Date(w.date);
-      if (isNaN(d.getTime())) return false;
-      return d >= startOfWeek && d <= todayOnly;
-    });
-
-    const thisMonth = completedWorkouts.filter((w) => {
-      const d = new Date(w.date);
-      if (isNaN(d.getTime())) return false;
-      return d >= startOfMonth && d <= todayOnly;
-    });
-
-    const total = completedWorkouts.length;
-
-    const uniqueDates = Array.from(new Set(completedWorkouts.map((w) => w.date)));
-
-    // enkel uppskattning på hur många veckor loggningen spänner över
-    const sortedDates = uniqueDates
-      .map((d) => new Date(d))
-      .filter((d) => !isNaN(d.getTime()))
-      .sort((a, b) => a.getTime() - b.getTime());
-
-    let avg = 0;
-    if (sortedDates.length >= 2) {
-      const first = sortedDates[0];
-      const last = sortedDates[sortedDates.length - 1];
-      const diffDays =
-        (last.getTime() - first.getTime()) / (1000 * 60 * 60 * 24);
-      const weeks = Math.max(1, diffDays / 7);
-      avg = total / weeks;
-    } else if (sortedDates.length === 1) {
-      avg = total; // allt på en vecka i praktiken
-    }
-
-    return {
-      workoutsThisWeek: thisWeek,
-      workoutsThisMonth: thisMonth,
-      totalWorkouts: total,
-      uniqueDaysCount: uniqueDates.length,
-      avgPerWeek: Math.round(avg * 10) / 10,
-    };
-  }, [completedWorkouts, startOfWeek, startOfMonth, todayOnly]);
-
-  // Streak-beräkning
-  const streak = useMemo(() => {
-    if (!completedWorkouts || completedWorkouts.length === 0) return 0;
-
-    const uniqueDates = Array.from(
-      new Set(completedWorkouts.map((w) => w.date))
-    ).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-
-    let count = 0;
-
-    const latest = new Date(uniqueDates[0]);
-    const latestOnly = new Date(
-      latest.getFullYear(),
-      latest.getMonth(),
-      latest.getDate()
-    );
-    const diffLatest =
-      (todayOnly.getTime() - latestOnly.getTime()) /
-      (1000 * 60 * 60 * 24);
-
-    if (diffLatest > 1) return 0;
-
-    for (let i = 0; i < uniqueDates.length; i++) {
-      const d = new Date(uniqueDates[i]);
-      const dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const diff =
-        (todayOnly.getTime() - dOnly.getTime()) /
-        (1000 * 60 * 60 * 24);
-
-      if (diff === count || diff === count + 1) {
-        count++;
-      } else {
-        break;
+  useEffect(() => {
+    const loadPrefs = async () => {
+      try {
+        const raw = await storage.getItem(STATS_PREFS_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<StatsScreenPrefs>;
+        if (
+          parsed.period === '7d' ||
+          parsed.period === '30d' ||
+          parsed.period === 'all' ||
+          parsed.period === 'custom'
+        ) {
+          setPeriod(parsed.period);
+        }
+        if (
+          parsed.trendMetric === 'sessions' ||
+          parsed.trendMetric === 'minutes' ||
+          parsed.trendMetric === 'volume'
+        ) {
+          setTrendMetric(parsed.trendMetric);
+        }
+        if (
+          parsed.topSort === 'sessions' ||
+          parsed.topSort === 'volume' ||
+          parsed.topSort === 'weight'
+        ) {
+          setTopSort(parsed.topSort);
+        }
+        if (typeof parsed.customStart === 'string') {
+          const d = parseISODate(parsed.customStart);
+          if (d) setCustomStart(d);
+        }
+        if (typeof parsed.customEnd === 'string') {
+          const d = parseISODate(parsed.customEnd);
+          if (d) setCustomEnd(d);
+        }
+      } catch {
+        // ignore invalid persisted prefs
+      } finally {
+        setPrefsHydrated(true);
       }
-    }
+    };
+    loadPrefs();
+  }, []);
 
-    return count;
-  }, [completedWorkouts, todayOnly]);
-
-  const workoutsToday = completedWorkouts.filter((w) => w.date === todayStr);
-
-  const weeklyProgressPercent =
-    weeklyGoal > 0
-      ? Math.min(1, workoutsThisWeek.length / weeklyGoal)
-      : 0;
-
+  useEffect(() => {
+    if (!prefsHydrated) return;
+    const payload: StatsScreenPrefs = {
+      period,
+      trendMetric,
+      topSort,
+      customStart: customStart ? toISODate(customStart) : null,
+      customEnd: customEnd ? toISODate(customEnd) : null,
+    };
+    storage.setItem(STATS_PREFS_KEY, JSON.stringify(payload)).catch(() => {});
+  }, [prefsHydrated, period, trendMetric, topSort, customStart, customEnd]);
   // Periodfiltrering
   const periodFiltered = useMemo(() => {
     if (period === 'all') return completedWorkouts;
-    if (period === 'custom' && customStart && customEnd) {
-      const start = customStart <= customEnd ? customStart : customEnd;
-      const end = customEnd >= customStart ? customEnd : customStart;
+    if (period === 'custom') {
+      if (!customStart && !customEnd) return completedWorkouts;
+      const rawStart = customStart || customEnd!;
+      const rawEnd = customEnd || customStart!;
+      const start = rawStart <= rawEnd ? startOfDay(rawStart) : startOfDay(rawEnd);
+      const end = rawEnd >= rawStart ? startOfDay(rawEnd) : startOfDay(rawStart);
       return completedWorkouts.filter((w) => {
-        const d = new Date(w.date);
+        const d = parseISODate(w.date);
+        if (!d) return false;
         return d >= start && d <= end;
       });
     }
@@ -223,33 +201,215 @@ export default function StatsScreen() {
     const cutoff = new Date(todayOnly);
     cutoff.setDate(cutoff.getDate() - days + 1);
     return completedWorkouts.filter((w) => {
-      const d = new Date(w.date);
+      const d = parseISODate(w.date);
+      if (!d) return false;
       return d >= cutoff && d <= todayOnly;
     });
   }, [period, todayOnly, completedWorkouts, customStart, customEnd]);
 
-  const volumeForPeriod = useMemo(() => {
-    return periodFiltered.reduce((sum, w) => {
-      const vol = (w.exercises || []).reduce((v, ex) => {
-        const sets = ex.performedSets && ex.performedSets.length > 0 ? ex.performedSets : [];
-        if (sets.length === 0) {
-          const repsNum = parseRepsValue(ex.reps);
-          return v + ex.sets * repsNum * parseWeightValue(ex.weight);
-        }
-        return (
-          v +
-          sets.reduce((acc, s) => {
-            const repsNum = parseRepsValue(String(s.reps));
-            const wt = parseWeightValue(s.weight);
-            return acc + repsNum * wt;
-          }, 0)
-        );
-      }, 0);
-      return sum + vol;
-    }, 0);
+  const periodRangeLabel = useMemo(() => {
+    if (period !== 'custom') return '';
+    if (!customStart && !customEnd) return t('stats.customRangeNotSet');
+    const rawStart = customStart || customEnd!;
+    const rawEnd = customEnd || customStart!;
+    const orderedStart = rawStart <= rawEnd ? rawStart : rawEnd;
+    const orderedEnd = rawEnd >= rawStart ? rawEnd : rawStart;
+    const startText = formatShortDate(toISODate(orderedStart));
+    const endText = formatShortDate(toISODate(orderedEnd));
+    return t('stats.customRangeLabel', undefined, { start: startText, end: endText });
+  }, [period, customStart, customEnd, t, formatShortDate]);
+
+  const periodSummary = useMemo(() => {
+    const totalMinutes = periodFiltered.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
+    const activeDays = new Set(periodFiltered.map((w) => w.date)).size;
+    const totalVolume = periodFiltered.reduce((sum, w) => sum + workoutVolume(w), 0);
+    const avgMinutes = periodFiltered.length > 0 ? Math.round(totalMinutes / periodFiltered.length) : 0;
+    return {
+      sessions: periodFiltered.length,
+      activeDays,
+      totalMinutes,
+      totalVolume: Math.round(totalVolume),
+      avgMinutes,
+    };
   }, [periodFiltered]);
 
-  const [topSort, setTopSort] = useState<'sessions' | 'sets' | 'reps' | 'volume' | 'weight'>('sessions');
+  const previousSummary = useMemo(() => {
+    if (period !== '7d' && period !== '30d') return null;
+    const days = period === '7d' ? 7 : 30;
+
+    const prevEnd = new Date(todayOnly);
+    prevEnd.setDate(prevEnd.getDate() - days);
+    const prevStart = new Date(prevEnd);
+    prevStart.setDate(prevStart.getDate() - days + 1);
+
+    const previous = completedWorkouts.filter((w) => {
+      const d = parseISODate(w.date);
+      if (!d) return false;
+      return d >= prevStart && d <= prevEnd;
+    });
+
+    const totalMinutes = previous.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
+    const totalVolume = previous.reduce((sum, w) => sum + workoutVolume(w), 0);
+    return {
+      sessions: previous.length,
+      totalVolume: Math.round(totalVolume),
+      avgMinutes: previous.length > 0 ? Math.round(totalMinutes / previous.length) : 0,
+    };
+  }, [completedWorkouts, period, todayOnly]);
+
+  const trendPoints = useMemo(() => {
+    if (periodFiltered.length === 0) return [] as {
+      key: string;
+      label: string;
+      sessions: number;
+      minutes: number;
+      volume: number;
+    }[];
+
+    if (period === '7d') {
+      const latest = new Date(todayOnly);
+      const days = Array.from({ length: 7 }, (_, index) => {
+        const d = new Date(latest);
+        d.setDate(d.getDate() - (6 - index));
+        const iso = toISODate(d);
+        return {
+          key: iso,
+          label: formatShortDate(iso),
+          sessions: 0,
+          minutes: 0,
+          volume: 0,
+        };
+      });
+
+      const byDate = new Map(days.map((d) => [d.key, d]));
+      periodFiltered.forEach((w) => {
+        const entry = byDate.get(w.date);
+        if (!entry) return;
+        entry.sessions += 1;
+        entry.minutes += w.durationMinutes || 0;
+        entry.volume += workoutVolume(w);
+      });
+      return days;
+    }
+
+    const latestWeekStart = startOfWeekDate(todayOnly);
+    const weeks = Array.from({ length: 6 }, (_, index) => {
+      const start = new Date(latestWeekStart);
+      start.setDate(start.getDate() - (5 - index) * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return {
+        key: toISODate(start),
+        label: formatShortDate(toISODate(start)),
+        start,
+        end,
+        sessions: 0,
+        minutes: 0,
+        volume: 0,
+      };
+    });
+
+    periodFiltered.forEach((w) => {
+      const d = parseISODate(w.date);
+      if (!d) return;
+      const target = weeks.find((bucket) => d >= bucket.start && d <= bucket.end);
+      if (!target) return;
+      target.sessions += 1;
+      target.minutes += w.durationMinutes || 0;
+      target.volume += workoutVolume(w);
+    });
+
+    return weeks.map(({ start, end, ...rest }) => rest);
+  }, [periodFiltered, period, todayOnly, formatShortDate]);
+
+  const trendMetrics = useMemo(
+    () => [
+      { key: 'sessions' as const, label: t('stats.trendSessions') },
+      { key: 'minutes' as const, label: t('stats.trendMinutes') },
+      { key: 'volume' as const, label: t('stats.trendVolume') },
+    ],
+    [t]
+  );
+
+  const trendGranularity = period === '7d' ? 'day' : 'week';
+
+  const activeTrend = useMemo(() => {
+    const values = trendPoints.map((point) => Number(point[trendMetric]));
+    const max = Math.max(...values, 1);
+    const latest = values.length > 0 ? values[values.length - 1] : 0;
+    const previous = values.length > 1 ? values[values.length - 2] : 0;
+    const total = values.reduce((sum, value) => sum + value, 0);
+    const avg = values.length > 0 ? total / values.length : 0;
+    return {
+      max,
+      latest,
+      previous,
+      avg,
+      delta: latest - previous,
+      wowPct:
+        previous > 0
+          ? ((latest - previous) / previous) * 100
+          : latest > 0
+            ? 100
+            : 0,
+    };
+  }, [trendPoints, trendMetric]);
+
+  useEffect(() => {
+    if (trendPoints.length === 0) {
+      setSelectedTrendIndex(null);
+      return;
+    }
+    setSelectedTrendIndex((prev) => {
+      if (prev == null || prev < 0 || prev >= trendPoints.length) return trendPoints.length - 1;
+      return prev;
+    });
+  }, [trendPoints, trendMetric]);
+
+  const selectedTrendPoint = useMemo(() => {
+    if (trendPoints.length === 0) return null;
+    const idx =
+      selectedTrendIndex != null && selectedTrendIndex >= 0 && selectedTrendIndex < trendPoints.length
+        ? selectedTrendIndex
+        : trendPoints.length - 1;
+    return { point: trendPoints[idx], index: idx };
+  }, [trendPoints, selectedTrendIndex]);
+
+  const selectedTrendDetails = useMemo(() => {
+    if (!selectedTrendPoint) return null;
+    const value = Number(selectedTrendPoint.point[trendMetric]);
+    const prevValue =
+      selectedTrendPoint.index > 0
+        ? Number(trendPoints[selectedTrendPoint.index - 1][trendMetric])
+        : value;
+    return {
+      label: selectedTrendPoint.point.label,
+      value,
+      delta: value - prevValue,
+    };
+  }, [selectedTrendPoint, trendMetric, trendPoints]);
+
+  const trendDirection = useMemo(() => {
+    if (activeTrend.delta > 0) {
+      return {
+        key: 'up' as const,
+        label: t('stats.trendDirectionUp'),
+        color: colors.accentGreen,
+      };
+    }
+    if (activeTrend.delta < 0) {
+      return {
+        key: 'down' as const,
+        label: t('stats.trendDirectionDown'),
+        color: '#ef4444',
+      };
+    }
+    return {
+      key: 'flat' as const,
+      label: t('stats.trendDirectionFlat'),
+      color: colors.textSoft,
+    };
+  }, [activeTrend.delta, t]);
 
   const topExercises = useMemo(() => {
     type TopEntry = {
@@ -303,7 +463,7 @@ export default function StatsScreen() {
           return acc + repsNum;
         }, 0);
 
-        if (new Date(w.date) > new Date(entry.lastDate)) {
+        if (compareISODate(w.date, entry.lastDate) > 0) {
           entry.lastDelta =
             setMax > 0 && entry.bestWeight > 0
               ? setMax - entry.bestWeight
@@ -317,8 +477,6 @@ export default function StatsScreen() {
     const list = Array.from(map.values());
     list.sort((a, b) => {
       if (topSort === 'sessions') return b.sessions - a.sessions;
-      if (topSort === 'sets') return b.totalSets - a.totalSets;
-      if (topSort === 'reps') return b.totalReps - a.totalReps;
       if (topSort === 'volume') return b.totalVolume - a.totalVolume;
       return b.bestWeight - a.bestWeight;
     });
@@ -326,91 +484,40 @@ export default function StatsScreen() {
     return list.slice(0, 5);
   }, [periodFiltered, topSort]);
 
-  const miniTrends = useMemo(() => {
-    // senaste 5 loggade vikter per övning (top 3 övningar)
-    type TrendEntry = {
-      name: string;
-      values: { weight: number; date: string }[];
-    };
-    const map = new Map<string, { weight: number; date: string }[]>();
-    periodFiltered.forEach((w) => {
-      (w.exercises || []).forEach((ex) => {
-        if (!ex.name) return;
-        const sets = ex.performedSets || [];
-        if (sets.length === 0) return;
-        const list = map.get(ex.name) || [];
-        sets.forEach((s) => {
-          const wt = parseWeightValue(s.weight);
-          if (wt > 0) {
-            list.push({ weight: wt, date: w.date });
-          }
-        });
-        // sort by date and keep latest 5
-        const sorted = list
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 5);
-        map.set(ex.name, sorted);
-      });
-    });
-    const trends: TrendEntry[] = Array.from(map.entries())
-      .map(([name, values]) => ({ name, values: values.reverse() })) // reverse to oldest -> newest
-      .filter((t) => t.values.length >= 2)
-      .sort((a, b) => b.values.length - a.values.length)
-      .slice(0, 3);
-    return trends;
-  }, [completedWorkouts]);
+  const aiPayload = useMemo<AIInsightRequest>(
+    () => ({
+      lang,
+      todayISO: toISODate(todayOnly),
+      period,
+      weeklyGoal,
+      summary: {
+        sessions: periodSummary.sessions,
+        activeDays: periodSummary.activeDays,
+        totalMinutes: periodSummary.totalMinutes,
+        totalVolume: periodSummary.totalVolume,
+        avgMinutes: periodSummary.avgMinutes,
+      },
+      topExercises: topExercises.slice(0, 3).map((ex) => ({
+        name: ex.name,
+        sessions: ex.sessions,
+        bestWeight: ex.bestWeight,
+      })),
+    }),
+    [lang, todayOnly, period, weeklyGoal, periodSummary, topExercises]
+  );
 
-  const muscleBreakdown = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        name: string;
-        count: number;
-        volume: number;
-        sessions: number;
-        lastDate: string | null;
-        exerciseCount: number;
-        setCount: number;
-      }
-    >();
-    periodFiltered.forEach((w) => {
-      (w.exercises || []).forEach((ex) => {
-        const key = normalizeMuscleLabel(ex.muscleGroup);
-        if (!map.has(key)) {
-          map.set(key, {
-            name: key,
-            count: 0,
-            volume: 0,
-            sessions: 0,
-            lastDate: null,
-            exerciseCount: 0,
-            setCount: 0,
-          });
-        }
-        const entry = map.get(key)!;
-        entry.count += 1;
-        entry.exerciseCount += 1;
-        const sets = ex.performedSets || [];
-        entry.setCount += sets.length || ex.sets || 0;
-        const vol = sets.reduce((acc, s) => {
-          const repsNum = parseRepsValue(String(s.reps));
-          const wt = parseWeightValue(s.weight);
-          return acc + repsNum * wt;
-        }, 0);
-        entry.volume += vol;
-        entry.sessions += w.isCompleted ? 1 : 0;
-        if (!entry.lastDate || w.date > entry.lastDate) {
-          entry.lastDate = w.date;
-        }
-      });
-    });
-    const entries = Array.from(map.values());
-    const total = entries.reduce((s, e) => s + e.count, 0);
-    const totalVolume = entries.reduce((s, e) => s + e.volume, 0);
-    return { entries, total, totalVolume };
-  }, [periodFiltered]);
+  const loadAIInsight = useCallback(async () => {
+    setAiLoading(true);
+    const insight = await getAIInsight(aiPayload);
+    setAiInsight(insight);
+    setAiLoading(false);
+  }, [aiPayload]);
 
-  const latestPBs = useMemo(() => {
+  useEffect(() => {
+    loadAIInsight();
+  }, [loadAIInsight]);
+
+  const pbData = useMemo(() => {
     type PBEntry = {
       name: string;
       weight: number;
@@ -419,7 +526,7 @@ export default function StatsScreen() {
       prevBest: number;
     };
     const sortedWorkouts = [...periodFiltered].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) => compareISODate(a.date, b.date)
     );
     const map = new Map<string, PBEntry>();
 
@@ -454,7 +561,15 @@ export default function StatsScreen() {
 
     const pbList = Array.from(map.values())
       .map((pb) => {
-        const pbDate = new Date(pb.date);
+        const pbDate = parseISODate(pb.date);
+        if (!pbDate) {
+          return {
+            ...pb,
+            delta: pb.weight - (pb.prevBest ?? 0),
+            isRecent: false,
+            isPB: pb.weight > (pb.prevBest ?? 0) && pb.weight > 0,
+          };
+        }
         const diffDays =
           (todayOnly.getTime() - pbDate.getTime()) / (1000 * 60 * 60 * 24);
         const delta = pb.weight - (pb.prevBest ?? 0);
@@ -469,164 +584,31 @@ export default function StatsScreen() {
       // Visa bara riktiga PB (måste slå ett tidigare värde eller första registrering >0)
       .filter((pb) => pb.isPB);
 
-    return pbList
+    const featured = pbList
       .sort((a, b) => {
         if (b.weight === a.weight) {
-          return new Date(b.date).getTime() - new Date(a.date).getTime();
+          return compareISODate(b.date, a.date);
         }
         return b.weight - a.weight;
       })
       .slice(0, 3);
-  }, [workouts, todayOnly]);
 
-  const renderTopExercise = useCallback(
-    ({ item }: { item: (typeof topExercises)[number] }) => (
-      <TouchableOpacity
-        style={styles.topExerciseRow}
-        onPress={() =>
-          router.push({
-            pathname: '/exercise-progress/[name]',
-            params: { name: item.name },
-          })
-        }
-        activeOpacity={0.9}
-      >
-        <View style={{ flex: 1 }}>
-          <Text style={styles.topExerciseName}>{item.name}</Text>
-          <Text style={styles.topExerciseMeta}>
-            {t('stats.topMeta', undefined, {
-              sessions: item.sessions,
-              last: formatShortDate(item.lastDate),
-            })}
-          </Text>
-          <View style={styles.topTags}>
-            <View style={styles.topTag}>
-              <Text style={styles.topTagText}>{t('stats.muscleSortSessions', 'Pass')}: {item.sessions}</Text>
-            </View>
-            <View style={styles.topTag}>
-              <Text style={styles.topTagText}>{t('stats.topSets', 'Set')}: {item.totalSets}</Text>
-            </View>
-            <View style={styles.topTag}>
-              <Text style={styles.topTagText}>{t('stats.topReps', 'Reps')}: {item.totalReps}</Text>
-            </View>
-            <View style={styles.topTag}>
-              <Text style={styles.topTagText}>{t('stats.topVolume', undefined, Math.round(item.totalVolume))}</Text>
-            </View>
-          </View>
-        </View>
-         <View style={styles.topExerciseBadge}>
-           <Text style={styles.topExerciseBadgeText}>
-             {item.bestWeight > 0 ? `${item.bestWeight} kg` : '–'}
-           </Text>
-            <View style={styles.statusIconCircle}>
-            {item.lastCompleted ? (
-              <CheckCircle2 size={14} color={colors.accentGreen} />
-            ) : (
-              <Clock size={14} color={colors.textSoft} />
-            )}
-          </View>
-        </View>
-        <View style={styles.topExerciseDelta}>
-          {topSort === 'volume' ? (
-            <Text style={styles.topExerciseMeta}>
-              {t('stats.topVolume', undefined, Math.round(item.totalVolume))}
-            </Text>
-          ) : (
-            <Text style={styles.topExerciseMeta}>
-              {t('stats.topMax', undefined, item.bestWeight > 0 ? `${item.bestWeight} kg` : '–')}
-            </Text>
-          )}
-          {item.lastDelta != null ? (
-            <Text style={styles.topExerciseDeltaText}>
-              {t('stats.topDelta', undefined, item.lastDelta)}
-            </Text>
-          ) : null}
-        </View>
-      </TouchableOpacity>
-    ),
-    [router, topExercises, topSort]
-  );
+    const latestDate =
+      pbList.length > 0
+        ? [...pbList].sort((a, b) => compareISODate(b.date, a.date))[0].date
+        : null;
+    const biggestDelta = Math.max(
+      ...pbList.map((pb) => (pb.delta != null ? pb.delta : 0)),
+      0
+    );
 
-  const [muscleSort, setMuscleSort] = useState<'percentage' | 'volume' | 'sessions'>('percentage');
-
-  const renderMuscleRow = useCallback(
-    ({ item }: { item: (typeof muscleBreakdown.entries)[number] }) => {
-      const pct = muscleBreakdown.total
-        ? Math.round((item.count / muscleBreakdown.total) * 100)
-        : 0;
-      const volPct = muscleBreakdown.totalVolume
-        ? Math.round((item.volume / muscleBreakdown.totalVolume) * 100)
-        : 0;
-      const last = item.lastDate ? formatShortDate(item.lastDate) : t('stats.muscleNoDate', '–');
-      return (
-        <TouchableOpacity
-          style={styles.muscleRow}
-          activeOpacity={0.9}
-          onPress={() =>
-            router.push({
-              pathname: '/exercise-progress',
-              params: { muscle: item.name },
-            })
-          }
-          accessibilityRole="button"
-          accessibilityLabel={t('stats.viewExercisesFor', undefined, item.name)}
-        >
-          <View style={styles.muscleLeft}>
-            <View style={[styles.muscleDot, { backgroundColor: colors.primary }]} />
-            <View>
-              <Text style={styles.muscleName}>{item.name}</Text>
-              <Text style={styles.muscleValue}>
-                {t('stats.muscleMeta', undefined, {
-                  sessions: item.sessions,
-                  volume: Math.round(item.volume),
-                })}
-              </Text>
-              <Text style={styles.muscleSub}>
-                {t('stats.muscleLast', 'Senast tränad')}: {last}
-              </Text>
-              <View style={styles.muscleTags}>
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>
-                    {t('stats.muscleSessionsTag', 'Pass')}: {item.sessions}
-                  </Text>
-                </View>
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>
-                    {t('stats.muscleVolumeTag', 'Volym')}: {Math.round(item.volume)}
-                  </Text>
-                </View>
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>
-                    {t('stats.muscleExercisesTag', 'Övningar')}: {item.exerciseCount}
-                  </Text>
-                </View>
-                <View style={styles.tag}>
-                  <Text style={styles.tagText}>
-                    {t('stats.muscleSetsTag', 'Set')}: {item.setCount}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-          <View style={styles.muscleRight}>
-            <Text style={styles.musclePct}>{volPct}%</Text>
-            <View style={styles.muscleBarBg}>
-              <View
-                style={[
-                  styles.muscleBarFill,
-                  { width: `${Math.min(100, volPct)}%` },
-                ]}
-              />
-            </View>
-            <Text style={styles.muscleSubPct}>
-              {t('stats.muscleSessions', undefined, item.sessions)}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      );
-    },
-    [muscleBreakdown.total, muscleBreakdown.totalVolume, router, t]
-  );
+    return {
+      featured,
+      total: pbList.length,
+      latestDate,
+      biggestDelta,
+    };
+  }, [periodFiltered, todayOnly]);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -637,7 +619,7 @@ export default function StatsScreen() {
         />
         <ScrollView
           style={styles.container}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={{ paddingBottom: spacing.xxxl }}
           showsVerticalScrollIndicator={false}
         >
         <Text style={styles.title}>{t('stats.title')}</Text>
@@ -652,10 +634,7 @@ export default function StatsScreen() {
               key={p}
               label={t(`stats.filters.${p}`)}
               tone={active ? 'primary' : 'neutral'}
-              style={[
-                styles.filterChip,
-                active && styles.filterChipActive,
-              ]}
+              style={active ? { ...styles.filterChip, ...styles.filterChipActive } : styles.filterChip}
               onPress={() => {
                 Haptics.selectionAsync();
                 setPeriod(p);
@@ -663,111 +642,306 @@ export default function StatsScreen() {
                   setShowCustomPicker(true);
                 }
               }}
-              accessibilityLabel={`Filtrera period ${t(`stats.filters.${p}`)}`}
-              accessibilityRole="button"
             />
           );
         })}
       </View>
+      {period === 'custom' ? (
+        <Text style={styles.customRangeText}>{periodRangeLabel}</Text>
+      ) : null}
+      <View style={styles.filterActionsRow}>
+        <TouchableOpacity
+          style={styles.filterResetButton}
+          activeOpacity={0.85}
+          onPress={() => {
+            Haptics.selectionAsync();
+            resetStatsFilters();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t('stats.resetFilters')}
+        >
+          <Text style={styles.filterResetText}>{t('stats.resetFilters')}</Text>
+        </TouchableOpacity>
+      </View>
+      {periodFiltered.length === 0 ? (
+        <GlassCard style={styles.card} elevated={false}>
+          <Text style={styles.cardTitle}>{t('stats.periodEmptyTitle')}</Text>
+          <Text style={styles.cardText}>{t('stats.periodEmptySubtitle')}</Text>
+          <View style={styles.progressButtons}>
+            <TouchableOpacity
+              style={[styles.pbEmptyButton, styles.primaryButton]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setPeriod('all');
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('stats.periodEmptyAllBtn')}
+            >
+              <Text style={styles.pbEmptyButtonText}>{t('stats.periodEmptyAllBtn')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.pbEmptyButton, styles.secondaryButton]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setPeriod('custom');
+                setShowCustomPicker(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t('stats.periodEmptyCustomBtn')}
+            >
+              <Text style={styles.pbEmptyButtonText}>{t('stats.periodEmptyCustomBtn')}</Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
+      ) : null}
 
-      {/* VECKOSAMMANFATTNING */}
+      {/* PERIODSNAPSHOT */}
       <GlassCard style={styles.card} elevated={false}>
         <View style={styles.cardHeaderRow}>
           <View style={styles.cardHeaderLeft}>
             <View style={styles.iconCircle}>
-              <Activity size={18} color={colors.accentGreen} />
+              <Clock size={18} color={colors.accentBlue} />
             </View>
             <View>
-              <Text style={styles.cardTitle}>{t('stats.weekTitle', 'Veckomål & streak')}</Text>
+              <Text style={styles.cardTitle}>{t('stats.periodSnapshotTitle')}</Text>
               <Text style={styles.cardText}>
-                {t('stats.weekSubtitle', 'Hur du ligger till mot målet och din aktuella streak.')}
+                {t('stats.periodSnapshotSubtitle', undefined, t(`stats.filters.${period}`))}
               </Text>
             </View>
           </View>
         </View>
-
-        <View style={styles.weekStatsRow}>
-          <View style={styles.weekStatBox}>
-            <Text style={styles.statLabel}>{t('stats.passesThisWeek', 'Pass denna vecka')}</Text>
-            <Text style={styles.statValue}>
-              {workoutsThisWeek.length}
-            </Text>
+        <View style={styles.summaryRow}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.statLabel}>{t('stats.periodSessions')}</Text>
+            <Text style={styles.statValue}>{periodSummary.sessions}</Text>
           </View>
-          <View style={styles.weekStatBox}>
-            <Text style={styles.statLabel}>{t('stats.weekGoal', 'Veckomål')}</Text>
-            <Text style={styles.statValue}>{weeklyGoal}</Text>
+          <View style={styles.summaryItem}>
+            <Text style={styles.statLabel}>{t('stats.periodActiveDays')}</Text>
+            <Text style={styles.statValue}>{periodSummary.activeDays}</Text>
           </View>
-          <View style={styles.weekStatBox}>
-            <Text style={styles.statLabel}>{t('stats.streak', 'Streak')}</Text>
-            <Text style={styles.statValue}>
-              {streak} {t('stats.days', 'dagar')}
-            </Text>
+          <View style={styles.summaryItem}>
+            <Text style={styles.statLabel}>{t('stats.periodMinutes')}</Text>
+            <Text style={styles.statValue}>{periodSummary.totalMinutes}</Text>
           </View>
         </View>
-
-        <GlowProgressBar value={weeklyProgressPercent} />
+        <View style={styles.monthRow}>
+          <View style={styles.monthItem}>
+            <Text style={styles.statLabel}>{t('stats.periodVolume')}</Text>
+            <Text style={styles.statValue}>{periodSummary.totalVolume}</Text>
+          </View>
+          <View style={styles.monthItem}>
+            <Text style={styles.statLabel}>{t('stats.periodAvgMinutes')}</Text>
+            <Text style={styles.statValue}>{periodSummary.avgMinutes}</Text>
+          </View>
+        </View>
         <Text style={styles.progressLabel}>
-          {weeklyGoal > 0
-            ? t('stats.weekProgress', undefined, { done: workoutsThisWeek.length, goal: weeklyGoal }) ||
-              `${workoutsThisWeek.length}/${weeklyGoal} pass avklarade`
-            : t('stats.noWeekGoal', 'Inget veckomål satt ännu.')}
+          {previousSummary
+            ? t('stats.periodDeltaSummary', undefined, {
+                sessions: periodSummary.sessions - previousSummary.sessions,
+                volume: periodSummary.totalVolume - previousSummary.totalVolume,
+                avgMinutes: periodSummary.avgMinutes - previousSummary.avgMinutes,
+              })
+            : t('stats.periodDeltaUnavailable')}
         </Text>
       </GlassCard>
 
-        {/* TOTAL PROGRESS */}
-        <GlassCard style={styles.card} elevated={false}>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.cardHeaderLeft}>
+      {/* AI INSIGHTS */}
+      <GlassCard style={styles.card} elevated={false}>
+        <View style={styles.cardHeaderRow}>
+          <View style={styles.cardHeaderLeft}>
+            <View style={styles.iconCircle}>
+              <Sparkles size={18} color={colors.primaryBright} />
+            </View>
+            <View>
+              <Text style={styles.cardTitle}>{t('stats.aiTitle')}</Text>
+              <Text style={styles.cardText}>{t('stats.aiSubtitle')}</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.aiRefreshButton}
+            activeOpacity={0.85}
+            onPress={() => {
+              Haptics.selectionAsync();
+              loadAIInsight();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('stats.aiRefresh')}
+          >
+            <Text style={styles.aiRefreshText}>{t('stats.aiRefresh')}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {aiLoading ? (
+          <Text style={styles.cardText}>{t('stats.aiLoading')}</Text>
+        ) : aiInsight ? (
+          <View style={styles.aiContent}>
+            <Text style={styles.aiSummaryText}>{aiInsight.summary}</Text>
+            <Text style={styles.statLabel}>{t('stats.aiActionsTitle')}</Text>
+            {aiInsight.actions.map((action, idx) => (
+              <Text key={`${action}-${idx}`} style={styles.aiActionText}>
+                {idx + 1}. {action}
+              </Text>
+            ))}
+            <Text style={styles.aiNextStepText}>{aiInsight.nextStep}</Text>
+            {aiInsight.source === 'fallback' ? (
+              <Text style={styles.aiSourceText}>{t('stats.aiSourceFallback')}</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </GlassCard>
+
+      {/* TRENDS */}
+      <GlassCard style={styles.card} elevated={false}>
+        <View style={styles.cardHeaderRow}>
+          <View style={styles.cardHeaderLeft}>
             <View style={styles.iconCircle}>
               <BarChart3 size={18} color={colors.accentBlue} />
             </View>
             <View>
-              <Text style={styles.cardTitle}>{t('stats.totalTitle', 'Total utveckling')}</Text>
-              <Text style={styles.cardText}>
-                {t('stats.totalSubtitle', 'Summering av alla pass du har loggat i appen.')}
-              </Text>
+              <Text style={styles.cardTitle}>{t('stats.trendTitle')}</Text>
+              <Text style={styles.cardText}>{t('stats.trendSubtitle')}</Text>
             </View>
           </View>
         </View>
+        {trendPoints.length === 0 ? (
+          <Text style={styles.emptyText}>{t('stats.trendEmpty')}</Text>
+        ) : (
+          <View style={styles.trendMetrics}>
+            <View style={styles.trendMetricPicker}>
+              {trendMetrics.map((metric) => {
+                const active = trendMetric === metric.key;
+                return (
+                  <TouchableOpacity
+                    key={metric.key}
+                    style={[styles.trendMetricChip, active ? styles.trendMetricChipActive : null]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setTrendMetric(metric.key);
+                    }}
+                  >
+                    <Text style={[styles.trendMetricChipText, active ? styles.trendMetricChipTextActive : null]}>
+                      {metric.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <Text style={styles.statLabel}>{t('stats.totalSessions', 'Totalt antal pass')}</Text>
-            <Text style={styles.statValue}>
-              {totalWorkouts}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.statLabel}>{t('stats.uniqueDays', 'Aktiva träningsdagar')}</Text>
-            <Text style={styles.statValue}>
-              {uniqueDaysCount}
-            </Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <Text style={styles.statLabel}>{t('stats.avgPerWeek', 'Snitt / vecka')}</Text>
-            <Text style={styles.statValue}>
-              {avgPerWeek.toFixed(1)}
-            </Text>
-          </View>
-        </View>
+            <View style={styles.trendMetricBlock}>
+              <Text style={styles.statLabel}>
+                {trendMetrics.find((metric) => metric.key === trendMetric)?.label}
+              </Text>
+              <Text style={styles.trendContextText}>
+                {t(
+                  'stats.trendGranularity',
+                  undefined,
+                  trendGranularity === 'day'
+                    ? t('stats.trendGranularityDay')
+                    : t('stats.trendGranularityWeek')
+                )}
+              </Text>
+              <View style={styles.trendBars}>
+                {trendPoints.map((point, index) => {
+                  const rawValue = Number(point[trendMetric]);
+                  const heightPercent = Math.max(0.1, rawValue / activeTrend.max);
+                  const prevValue = index > 0 ? Number(trendPoints[index - 1][trendMetric]) : rawValue;
+                  const barColor =
+                    rawValue > prevValue
+                      ? colors.accentGreen
+                      : rawValue < prevValue
+                        ? '#ef4444'
+                        : colors.primary;
+                  const isSelected = selectedTrendPoint?.point.key === point.key;
+                  return (
+                    <TouchableOpacity
+                      key={`${trendMetric}-${point.key}`}
+                      style={styles.trendBarCol}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setSelectedTrendIndex(index);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('stats.trendPointA11y', undefined, {
+                        label: point.label,
+                        value: formatTrendMetricValue(rawValue, trendMetric, t),
+                      })}
+                    >
+                      <View style={[styles.trendBarBg, styles.trendBarBgLarge, isSelected ? styles.trendBarBgSelected : null]}>
+                        <View
+                          style={[
+                            styles.trendBarFill,
+                            { backgroundColor: barColor },
+                            { height: `${Math.round(heightPercent * 100)}%` },
+                          ]}
+                        />
+                      </View>
+                      <Text numberOfLines={1} style={[styles.trendBarLabel, isSelected ? styles.trendBarLabelSelected : null]}>
+                        {point.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.trendHintText}>{t('stats.trendTapHint')}</Text>
+            </View>
 
-        <View style={styles.monthRow}>
-          <View style={styles.monthItem}>
-            <Text style={styles.statLabel}>{t('stats.monthSessions', 'Pass denna månad')}</Text>
-            <Text style={styles.statValue}>
-              {workoutsThisMonth.length}
+            {selectedTrendDetails ? (
+              <View style={styles.trendSelectedCard}>
+                <Text style={styles.statLabel}>
+                  {t('stats.trendSelectedPoint', undefined, selectedTrendDetails.label)}
+                </Text>
+                <Text style={styles.trendSelectedValue}>
+                  {formatTrendMetricValue(selectedTrendDetails.value, trendMetric, t)}
+                </Text>
+                <Text style={styles.progressLabel}>
+                  {t('stats.trendPointDeltaStat', undefined, {
+                    value: Math.round(selectedTrendDetails.delta),
+                  })}
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.trendSummaryRow}>
+              <View style={styles.trendSummaryItem}>
+                <Text style={styles.statLabel}>{t('stats.trendLatestStat')}</Text>
+                <Text style={styles.statValue}>{Math.round(activeTrend.latest)}</Text>
+              </View>
+              <View style={styles.trendSummaryItem}>
+                <Text style={styles.statLabel}>{t('stats.trendAverageStat')}</Text>
+                <Text style={styles.statValue}>{activeTrend.avg.toFixed(1)}</Text>
+              </View>
+              <View style={styles.trendSummaryItem}>
+                <Text style={styles.statLabel}>{t('stats.trendPeakStat')}</Text>
+                <Text style={styles.statValue}>{Math.round(activeTrend.max)}</Text>
+              </View>
+            </View>
+            <View style={styles.trendDeltaRow}>
+              <View style={[styles.trendDirectionPill, { borderColor: trendDirection.color }]}>
+                {trendDirection.key === 'up' ? (
+                  <TrendingUp size={12} color={trendDirection.color} />
+                ) : trendDirection.key === 'down' ? (
+                  <TrendingDown size={12} color={trendDirection.color} />
+                ) : (
+                  <Minus size={12} color={trendDirection.color} />
+                )}
+                <Text style={[styles.trendDirectionText, { color: trendDirection.color }]}>
+                  {trendDirection.label}
+                </Text>
+              </View>
+              <Text style={styles.progressLabel}>
+                {t('stats.trendDeltaStat', undefined, { value: Math.round(activeTrend.delta) })}
+              </Text>
+            </View>
+            <Text style={styles.progressLabel}>
+              {t('stats.trendWoWStat', undefined, { value: activeTrend.wowPct.toFixed(1) })}
             </Text>
           </View>
-          <View style={styles.monthItem}>
-            <Text style={styles.statLabel}>
-              {t('stats.periodVolume', 'Volym')} ({t(`stats.filters.${period}`)})
-            </Text>
-            <Text style={styles.statValue}>{volumeForPeriod}</Text>
-          </View>
-        </View>
+        )}
       </GlassCard>
 
-        {/* STREAK / FOKUS */}
+        {/* PB */}
         <GlassCard style={styles.card} elevated={false}>
           <View style={styles.cardHeaderRow}>
             <View style={styles.cardHeaderLeft}>
@@ -782,22 +956,58 @@ export default function StatsScreen() {
                     router.push('/pb-list');
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={t('stats.pbTitle', 'PB')}
+                  accessibilityLabel={t('stats.pbTitle')}
                 >
-                  <Text style={styles.cardTitle}>{t('stats.pbTitle', 'PB')}</Text>
+                  <Text style={styles.cardTitle}>{t('stats.pbTitle')}</Text>
                   <Text style={styles.cardText}>
-                    {t('stats.pbSubtitle', 'Dina senaste personbästa i perioden.')}
+                    {t('stats.pbSubtitle')}
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
 
-          {latestPBs.length === 0 ? (
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.statLabel}>{t('stats.pbActive')}</Text>
+              <Text style={styles.statValue}>{pbData.total}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.statLabel}>{t('stats.pbLatest')}</Text>
+              <Text style={styles.statValue}>
+                {pbData.latestDate ? formatShortDate(pbData.latestDate) : '–'}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.statLabel}>{t('stats.pbTotalImprovement')}</Text>
+              <Text style={styles.statValue}>
+                {pbData.biggestDelta > 0 ? `+${pbData.biggestDelta}` : '0'} kg
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={[styles.pbEmptyButton, styles.primaryButton, styles.pbOpenAllButton]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/pb-list');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('stats.pbOpenAll')}
+          >
+            <Text style={styles.pbEmptyButtonText}>{t('stats.pbOpenAll')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.progressLabel}>{t('stats.pbHistoryHint')}</Text>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, { flex: 1.2 }]}>{t('stats.sortName')}</Text>
+            <Text style={[styles.tableHeaderText, { textAlign: 'center' }]}>{t('stats.sortDate')}</Text>
+            <Text style={[styles.tableHeaderText, { textAlign: 'right' }]}>{t('stats.sortValue')}</Text>
+          </View>
+
+          {pbData.featured.length === 0 ? (
             completedWorkouts.length === 0 ? (
               <View style={styles.pbEmpty}>
                 <Text style={styles.emptyText}>
-                  {t('stats.pbEmptyFirst', 'Inga pass ännu – logga ett pass för att se dina PB här.')}
+                  {t('stats.pbEmptyFirst')}
                 </Text>
                 <View style={styles.pbEmptyActions}>
                   <TouchableOpacity
@@ -807,7 +1017,7 @@ export default function StatsScreen() {
                       router.push('/workout/quick-workout');
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={t('home.start', 'Starta pass')}
+                    accessibilityLabel={t('home.start')}
                   >
                     <Text style={styles.pbEmptyButtonText}>{t('home.start')}</Text>
                   </TouchableOpacity>
@@ -818,19 +1028,19 @@ export default function StatsScreen() {
                       router.push('/schedule-workout');
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={t('home.weekEmptyCTA', 'Planera pass')}
+                    accessibilityLabel={t('home.weekEmptyCTA')}
                   >
-                    <Text style={styles.pbEmptyButtonText}>{t('home.weekEmptyCTA', 'Planera')}</Text>
+                    <Text style={styles.pbEmptyButtonText}>{t('home.weekEmptyCTA')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <Text style={styles.emptyText}>
-                {t('stats.pbEmpty', 'Inga PB registrerade ännu. Logga vikter i dina pass för att se highlights här.')}
+                {t('stats.pbEmpty')}
               </Text>
             )
           ) : (
-            latestPBs.map((pb) => (
+            pbData.featured.map((pb) => (
               <TouchableOpacity
                 key={`${pb.name}-${pb.date}`}
                 style={styles.pbRow}
@@ -842,68 +1052,18 @@ export default function StatsScreen() {
                   })
                 }
                 accessibilityRole="button"
-                accessibilityLabel={t('stats.viewExercisesFor', `Visa progression för ${pb.name}`, pb.name)}
+                accessibilityLabel={t('stats.viewExercisesFor', undefined, pb.name)}
               >
-                <Text style={styles.pbName}>{pb.name}</Text>
-                <View style={styles.pbRight}>
-                  <View style={styles.statusIconCircle}>
-                    {pb.isCompleted ? (
-                      <CheckCircle2 size={14} color={colors.accentGreen} />
-                    ) : (
-                      <Clock size={14} color={colors.textSoft} />
-                    )}
-                  </View>
+                <Text style={[styles.pbName, { flex: 1.2 }]}>{pb.name}</Text>
+                <Text style={[styles.pbDate, { flex: 1, textAlign: 'center' }]}>{formatShortDate(pb.date)}</Text>
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
                   <Text style={styles.pbWeight}>{pb.weight} kg</Text>
-                  {pb.delta != null ? (
-                    <Text style={styles.pbDelta}>
-                      {t('stats.pbDelta', undefined, pb.delta)}
-                    </Text>
-                  ) : null}
-                  <View style={styles.pbDateRow}>
-                    <Text style={styles.pbDate}>{formatShortDate(pb.date)}</Text>
-                    {pb.isRecent ? (
-                      <View style={styles.pbRecentPill}>
-                        <Text style={styles.pbRecentText}>Ny</Text>
-                      </View>
-                    ) : null}
-                  </View>
+                  {pb.delta != null ? <Text style={styles.pbDelta}>{t('stats.pbDelta', undefined, pb.delta)}</Text> : null}
                 </View>
               </TouchableOpacity>
             ))
           )}
         </GlassCard>
-
-        {/* TRÄNINGSFREKVENS */}
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => {
-            Haptics.selectionAsync();
-            router.push('/training-frequency');
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={t('stats.freqTitle', 'Träningsfrekvens')}
-        >
-          <GlassCard style={styles.card} elevated={false}>
-            <View style={styles.cardHeaderRow}>
-              <View style={styles.cardHeaderLeft}>
-                <View style={styles.iconCircle}>
-                  <Activity size={18} color={colors.accentBlue} />
-                </View>
-                <View>
-                  <Text style={styles.cardTitle}>{t('stats.freqTitle', 'Träningsfrekvens')}</Text>
-                  <Text style={styles.cardText}>
-                    {t('stats.freqSubtitle', 'Se hur ofta och hur mycket du tränar en övning.')}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View style={styles.cardCtaRow}>
-              <View style={styles.cardChip}>
-                <Text style={styles.cardChipText}>{t('stats.progressShowAll', 'Visa')}</Text>
-              </View>
-            </View>
-          </GlassCard>
-        </TouchableOpacity>
 
         {/* ÖVNINGS-PROGRESS LINK */}
         <GlassCard style={styles.card} elevated={false}>
@@ -913,9 +1073,9 @@ export default function StatsScreen() {
                 <Dumbbell size={18} color={colors.accentBlue} />
               </View>
               <View>
-                <Text style={styles.cardTitle}>{t('stats.progressTitle', 'Övningsprogress')}</Text>
+                <Text style={styles.cardTitle}>{t('stats.progressTitle')}</Text>
                 <Text style={styles.cardText}>
-                  {t('stats.progressSubtitle', 'Se utvecklingen för varje övning – vikter, volym och historik.')}
+                  {t('stats.progressSubtitle')}
                 </Text>
               </View>
             </View>
@@ -923,52 +1083,86 @@ export default function StatsScreen() {
 
           <View style={styles.progressInfoRow}>
             <Text style={styles.progressInfoText}>
-              {t('stats.progressSummary', undefined, muscleBreakdown.total)}
+              {t('stats.topTitle')}
             </Text>
-            {topExercises[0]?.name ? (
-              <Text style={styles.progressInfoSub}>
-                {t('stats.progressLatest', undefined, topExercises[0].name)}
-              </Text>
-            ) : null}
+            <Text style={styles.progressInfoSub}>{t('stats.topSubtitle')}</Text>
           </View>
 
-          <View style={styles.progressChips}>
-            {((t('stats.progressChips') as unknown as string[]) || []).map((label) => (
-              <View key={label} style={styles.progressChip}>
-                <Text style={styles.progressChipText}>{label}</Text>
-              </View>
-            ))}
+          <View style={styles.topSortRow}>
+            {([
+              { key: 'sessions', label: t('stats.topSortSessions') },
+              { key: 'volume', label: t('stats.topSortVolume') },
+              { key: 'weight', label: t('stats.topSortWeight') },
+            ] as const).map((item) => {
+              const active = topSort === item.key;
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.topSortChip, active ? styles.topSortChipActive : null]}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setTopSort(item.key);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.label}
+                >
+                  <Text style={[styles.topSortText, active ? styles.topSortTextActive : null]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, { flex: 1.3 }]}>{t('stats.sortName')}</Text>
+            <Text style={styles.tableHeaderText}>{t('stats.topSortSessions')}</Text>
+            <Text style={[styles.tableHeaderText, { textAlign: 'right' }]}>{t('stats.sortValue')}</Text>
           </View>
 
-          <View style={styles.progressButtons}>
-            <TouchableOpacity
-              style={[styles.pbEmptyButton, styles.primaryButton]}
-              onPress={() => {
-                Haptics.selectionAsync();
-                router.push('/exercise-progress');
-              }}
-              accessibilityLabel="Visa alla övningar"
-              accessibilityRole="button"
-            >
-              <Text style={styles.pbEmptyButtonText}>{t('stats.progressShowAll', 'Visa övningar')}</Text>
-            </TouchableOpacity>
-            {topExercises[0]?.name ? (
-              <TouchableOpacity
-                style={[styles.pbEmptyButton, styles.secondaryButton]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push({
-                    pathname: '/exercise-progress/[name]',
-                    params: { name: topExercises[0].name },
-                  });
-                }}
-                accessibilityLabel={`Öppna ${topExercises[0].name}`}
-                accessibilityRole="button"
-              >
-                <Text style={styles.pbEmptyButtonText}>{t('stats.progressShowLatest', 'Senaste övning')}</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
+          {topExercises.length === 0 ? (
+            <Text style={styles.emptyText}>{t('stats.topEmpty')}</Text>
+          ) : (
+            <View style={styles.topList}>
+              {topExercises.slice(0, 5).map((ex) => (
+                <TouchableOpacity
+                  key={ex.name}
+                  style={styles.topExerciseRow}
+                  activeOpacity={0.9}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/exercise-progress/[name]',
+                      params: { name: ex.name },
+                    })
+                  }
+                >
+                  <View style={{ flex: 1.3 }}>
+                    <Text style={styles.topExerciseName}>{ex.name}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.topExerciseMeta}>{ex.sessions}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.topExerciseMeta, { textAlign: 'right' }]}>
+                      {ex.bestWeight > 0 ? `${ex.bestWeight} kg` : '–'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.pbEmptyButton, styles.primaryButton, styles.progressFreqButton]}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/exercise-progress');
+            }}
+            accessibilityLabel={t('stats.progressShowAll')}
+            accessibilityRole="button"
+          >
+            <Text style={styles.pbEmptyButtonText}>{t('stats.progressShowAll')}</Text>
+          </TouchableOpacity>
         </GlassCard>
 
         </ScrollView>
@@ -986,12 +1180,69 @@ export default function StatsScreen() {
               onPress={() => {
                 setShowCustomPicker(false);
               }}
-              accessibilityLabel={t('stats.closeDatePicker', 'Stäng datumväljaren')}
+              accessibilityLabel={t('stats.closeDatePicker')}
               accessibilityRole="button"
             >
               <X size={16} color={colors.textSoft} />
             </TouchableOpacity>
             <Text style={styles.modalTitle}>{t('stats.datePickerTitle')}</Text>
+            <View style={styles.modalPresetRow}>
+              <TouchableOpacity
+                style={styles.modalPresetButton}
+                onPress={() => {
+                  const end = new Date(todayOnly);
+                  const start = new Date(todayOnly);
+                  start.setDate(start.getDate() - 6);
+                  setCustomStart(start);
+                  setCustomEnd(end);
+                  setPeriod('custom');
+                  setActivePicker(null);
+                }}
+              >
+                <Text style={styles.modalPresetText}>{t('stats.preset7d')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalPresetButton}
+                onPress={() => {
+                  const end = new Date(todayOnly);
+                  const start = new Date(todayOnly);
+                  start.setDate(start.getDate() - 29);
+                  setCustomStart(start);
+                  setCustomEnd(end);
+                  setPeriod('custom');
+                  setActivePicker(null);
+                }}
+              >
+                <Text style={styles.modalPresetText}>{t('stats.preset30d')}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalPresetRow}>
+              <TouchableOpacity
+                style={styles.modalPresetButton}
+                onPress={() => {
+                  const start = new Date(todayOnly.getFullYear(), todayOnly.getMonth(), 1);
+                  const end = new Date(todayOnly);
+                  setCustomStart(start);
+                  setCustomEnd(end);
+                  setPeriod('custom');
+                  setActivePicker(null);
+                }}
+              >
+                <Text style={styles.modalPresetText}>{t('stats.presetMonth')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalPresetButton}
+                onPress={() => {
+                  setCustomStart(null);
+                  setCustomEnd(null);
+                  setPeriod('all');
+                  setActivePicker(null);
+                  setShowCustomPicker(false);
+                }}
+              >
+                <Text style={styles.modalPresetText}>{t('stats.presetClear')}</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.modalRow}>
               <Text style={styles.modalLabel}>{t('stats.startLabel')}</Text>
               <TouchableOpacity
@@ -1000,7 +1251,7 @@ export default function StatsScreen() {
                   setActivePicker('start');
                   setShowCustomPicker(true);
                 }}
-                accessibilityLabel={t('stats.pickStart', 'Välj startdatum')}
+                accessibilityLabel={t('stats.pickStart')}
                 accessibilityRole="button"
               >
                 <Text style={styles.modalDateText}>
@@ -1016,7 +1267,7 @@ export default function StatsScreen() {
                   setActivePicker('end');
                   setShowCustomPicker(true);
                 }}
-                accessibilityLabel={t('stats.pickEnd', 'Välj slutdatum')}
+                accessibilityLabel={t('stats.pickEnd')}
                 accessibilityRole="button"
               >
                 <Text style={styles.modalDateText}>
@@ -1050,8 +1301,9 @@ export default function StatsScreen() {
                     ? formatDate(customStart || todayOnly)
                     : formatDate(customEnd || todayOnly)
                 }
-                onDayPress={(day) => {
-                  const picked = new Date(day.dateString);
+                onDayPress={(day: CalendarDay) => {
+                  const picked = parseISODate(day.dateString);
+                  if (!picked) return;
                   if (activePicker === 'start') {
                     setCustomStart(picked);
                     if (!customEnd || picked > customEnd) {
@@ -1059,8 +1311,8 @@ export default function StatsScreen() {
                     }
                   } else if (activePicker === 'end') {
                     setCustomEnd(picked);
-                    if (!customStart || picked > customStart) {
-                      setCustomStart(customStart || picked);
+                    if (!customStart || picked < customStart) {
+                      setCustomStart(picked);
                     }
                   }
                   setPeriod('custom');
@@ -1103,6 +1355,16 @@ export default function StatsScreen() {
   );
 }
 
+type CalendarDay = { dateString: string };
+const STATS_PREFS_KEY = 'stats-screen-prefs-v1';
+type StatsScreenPrefs = {
+  period: '7d' | '30d' | 'all' | 'custom';
+  trendMetric: TrendMetric;
+  topSort: 'sessions' | 'volume' | 'weight';
+  customStart: string | null;
+  customEnd: string | null;
+};
+
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
@@ -1113,9 +1375,9 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingHorizontal: spacing.lg + 2,
+    paddingTop: spacing.md + 2,
+    paddingBottom: spacing.xl,
   },
   title: {
     ...typography.display,
@@ -1124,29 +1386,11 @@ const styles = StyleSheet.create({
   subtitle: {
     ...typography.caption,
     color: colors.textSoft,
-    marginTop: 4,
-    marginBottom: 10,
+    marginTop: spacing.xs + 1,
+    marginBottom: spacing.md,
   },
   card: {
-    marginTop: 10,
-  },
-  cardCtaRow: {
-    marginTop: 6,
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-  },
-  cardChip: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.primarySoft,
-    borderWidth: 1,
-    borderColor: colors.primary,
-  },
-  cardChipText: {
-    ...typography.caption,
-    color: colors.textMain,
-    fontWeight: '700',
+    marginTop: spacing.md,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1176,6 +1420,41 @@ const styles = StyleSheet.create({
   cardText: {
     ...typography.caption,
     color: colors.textSoft,
+    marginTop: 2,
+  },
+  aiRefreshButton: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: colors.primarySoft,
+  },
+  aiRefreshText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
+  aiContent: {
+    marginTop: 2,
+    gap: 4,
+  },
+  aiSummaryText: {
+    ...typography.body,
+    color: colors.textMain,
+  },
+  aiActionText: {
+    ...typography.caption,
+    color: colors.textSoft,
+  },
+  aiNextStepText: {
+    ...typography.bodyBold,
+    color: colors.accentGreen,
+    marginTop: 2,
+  },
+  aiSourceText: {
+    ...typography.micro,
+    color: colors.textMuted,
     marginTop: 2,
   },
 
@@ -1296,15 +1575,39 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 8,
+  },
+  customRangeText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: -4,
+    marginBottom: 6,
+  },
+  filterActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 4,
+  },
+  filterResetButton: {
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: colors.backgroundSoft,
+  },
+  filterResetText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
   },
   filterChip: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     minWidth: 70,
     alignItems: 'center',
   },
@@ -1324,11 +1627,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1f2937',
   },
   pbName: {
     ...typography.bodyBold,
     color: colors.textMain,
+    fontSize: 13,
   },
   pbRight: {
     alignItems: 'flex-end',
@@ -1338,10 +1644,11 @@ const styles = StyleSheet.create({
   pbWeight: {
     ...typography.bodyBold,
     color: colors.accentGreen,
+    fontSize: 13,
   },
   pbDelta: {
     ...typography.micro,
-    color: colors.accentBlue,
+    color: colors.textMuted,
     fontWeight: '700',
   },
   pbDate: {
@@ -1389,12 +1696,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12,
   },
+  pbOpenAllButton: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    flex: 0,
+    paddingHorizontal: 14,
+  },
   primaryButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.primarySoft,
     borderColor: colors.primary,
   },
   secondaryButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: colors.backgroundSoft,
     borderColor: '#334155',
   },
   progressInfoRow: {
@@ -1410,33 +1723,171 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: colors.textSoft,
   },
-  progressChips: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 6,
-    flexWrap: 'wrap',
-  },
-  progressChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.backgroundSoft,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  progressChipText: {
-    ...typography.micro,
-    color: colors.textMuted,
-    fontWeight: '700',
-  },
   progressButtons: {
     flexDirection: 'row',
     gap: 8,
     marginTop: 10,
   },
-  topSortChip: {
+  progressFreqButton: {
+    marginTop: 8,
+  },
+  topSortRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  tableHeader: {
+    marginTop: 8,
+    paddingTop: 6,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f2937',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tableHeaderText: {
+    ...typography.micro,
+    flex: 1,
+    color: colors.textMuted,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  trendMetrics: {
+    marginTop: 8,
+    gap: 10,
+  },
+  trendMetricPicker: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  trendMetricChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: colors.backgroundSoft,
+  },
+  trendMetricChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  trendMetricChipText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  trendMetricChipTextActive: {
+    color: colors.textMain,
+  },
+  trendMetricBlock: {
+    gap: 6,
+  },
+  trendContextText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: -2,
+  },
+  trendBars: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'flex-end',
+  },
+  trendBarCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  trendBarBg: {
+    width: '100%',
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: colors.backgroundSoft,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  trendBarBgLarge: {
+    height: 84,
+  },
+  trendBarBgSelected: {
+    borderColor: colors.primary,
+  },
+  trendBarFill: {
+    width: '100%',
+    backgroundColor: colors.primary,
+  },
+  trendBarLabel: {
+    ...typography.micro,
+    color: colors.textMuted,
+    fontSize: 9,
+  },
+  trendBarLabelSelected: {
+    color: colors.textMain,
+    fontWeight: '700',
+  },
+  trendHintText: {
+    ...typography.micro,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  trendSelectedCard: {
+    marginTop: 2,
+    backgroundColor: colors.backgroundSoft,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  trendSelectedValue: {
+    ...typography.title,
+    color: colors.textMain,
+    fontSize: 18,
+  },
+  trendSummaryRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  trendSummaryItem: {
+    flex: 1,
+    backgroundColor: colors.backgroundSoft,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  trendDeltaRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  trendDirectionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: colors.backgroundSoft,
+  },
+  trendDirectionText: {
+    ...typography.micro,
+    fontWeight: '700',
+  },
+  topSortChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#1f2937',
@@ -1458,9 +1909,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: colors.backgroundSoft,
+    borderTopColor: '#1f2937',
+  },
+  topList: {
+    marginTop: 10,
   },
   topExerciseName: {
     ...typography.bodyBold,
@@ -1619,6 +2073,26 @@ const styles = StyleSheet.create({
     color: colors.textMain,
     marginBottom: 10,
     marginTop: 4,
+  },
+  modalPresetRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  modalPresetButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    backgroundColor: '#0f172a',
+  },
+  modalPresetText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
   },
   modalRow: {
     flexDirection: 'row',

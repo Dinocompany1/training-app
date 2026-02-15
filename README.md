@@ -48,3 +48,39 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## AI Coach backend (human-like chat)
+
+The app can run in two modes:
+
+- `fallback` (local rule-based replies)
+- `remote` (real LLM conversation)
+
+To get real conversational responses, run the included proxy server and connect it from Expo env.
+
+1. Start backend proxy
+
+```bash
+OPENAI_API_KEY=your_key_here npm run ai:chat-server
+```
+
+Optional:
+
+```bash
+OPENAI_MODEL=gpt-4.1-mini PORT=8787 OPENAI_API_KEY=your_key_here npm run ai:chat-server
+```
+
+2. Point app to backend
+
+Add in your Expo env:
+
+```bash
+EXPO_PUBLIC_AI_CHAT_URL=http://localhost:8787/ai-chat
+```
+
+3. Restart Expo (`npm start`) so env changes apply.
+
+Notes:
+
+- On a physical phone, `localhost` means the phone itself. Use your computer LAN IP instead, e.g. `http://192.168.1.50:8787/ai-chat`.
+- Keep `OPENAI_API_KEY` only on backend/server side. Do not put it in Expo public env.

@@ -77,7 +77,6 @@ interface WorkoutsContextValue {
   updateWorkout: (workout: Workout) => void;
   removeWorkout: (id: string) => void;
   forceSave?: (override?: PersistedData['data']) => Promise<void>;
-  forceSave?: () => Promise<void>;
 
   // Sparade rutiner
   templates: Template[];
@@ -110,8 +109,9 @@ const WorkoutsContext = createContext<WorkoutsContextValue | undefined>(
   undefined
 );
 
-const STORAGE_PATH = `${FileSystem.documentDirectory}workouts-data.json`;
-const BACKUP_DIR = `${FileSystem.documentDirectory}backups`;
+const FS_DOCUMENT_DIR = (FileSystem as any).documentDirectory ?? '';
+const STORAGE_PATH = `${FS_DOCUMENT_DIR}workouts-data.json`;
+const BACKUP_DIR = `${FS_DOCUMENT_DIR}backups`;
 const DATA_VERSION = 1;
 const ASYNC_KEY = 'workouts-data';
 type PersistedData = {
@@ -140,6 +140,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   const [customGroups, setCustomGroups] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasSkippedInitialAutosave = useRef(false);
 
   // ===== Pass =====
   const addWorkout = (workout: Workout) => {
@@ -314,7 +315,6 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         try {
           await AsyncStorage.setItem(ASYNC_KEY, JSON.stringify(payload));
         } catch (err) {
-          console.warn('AsyncStorage save fail', err);
           throw err;
         }
       },
@@ -325,10 +325,11 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
   );
 
   const supabaseStorageAdapter: StorageAdapter | null = useMemo(() => {
-    if (!supabase) return null;
+    const sb = supabase;
+    if (!sb) return null;
     return {
       load: async () => {
-        const { data, error } = await supabase
+        const { data, error } = await sb
           .from('app_state')
           .select('version,data')
           .eq('id', 'default')
@@ -344,7 +345,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         };
       },
       save: async (payload: PersistedData) => {
-        const { error } = await supabase
+        const { error } = await sb
           .from('app_state')
           .upsert({
             id: 'default',
@@ -389,6 +390,14 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
           performedSets: sanitizePerformedSets(ex.performedSets),
         }))
         .filter((ex) => !!ex.name);
+    const sanitizeCustomExercises = (list?: CustomExercise[]) =>
+      (list || [])
+        .map((ex) => ({
+          name: ex.name?.trim() || '',
+          muscleGroup: normalizeMuscle(ex.muscleGroup),
+          imageUri: ex.imageUri,
+        }))
+        .filter((ex) => !!ex.name);
     const cleanWorkouts = (data.workouts || []).map((w) => ({
       ...w,
       exercises: sanitizeExercises(w.exercises),
@@ -402,11 +411,11 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
       templates: cleanTemplates,
       bodyPhotos: data.bodyPhotos || [],
       weeklyGoal: data.weeklyGoal ?? 3,
-      customExercises: sanitizeExercises(data.customExercises),
+      customExercises: sanitizeCustomExercises(data.customExercises),
       customGroups: Array.from(
         new Set([
           ...(data.customGroups || []),
-          ...sanitizeExercises(data.customExercises).map((ex) => ex.muscleGroup),
+          ...sanitizeCustomExercises(data.customExercises).map((ex) => ex.muscleGroup),
         ])
       ),
     };
@@ -459,8 +468,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         for (const ad of adapters) {
           try {
             await ad.save(payload);
-          } catch (err) {
-            console.warn('Could not save migrated to adapter', err);
+          } catch {
           }
         }
       } catch (err) {
@@ -479,6 +487,10 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
   // Spara
   useEffect(() => {
     if (!loaded) return;
+    if (!hasSkippedInitialAutosave.current) {
+      hasSkippedInitialAutosave.current = true;
+      return;
+    }
 
     if (saveTimeout.current) {
       clearTimeout(saveTimeout.current);
@@ -495,9 +507,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
           for (const ad of adapters) {
             await ad.save(payload);
           }
-        } catch (err) {
-          console.warn('Kunde inte spara träningsdata', err);
-          toast('Kunde inte spara data');
+        } catch {
         }
       };
       save();
@@ -508,7 +518,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         clearTimeout(saveTimeout.current);
       }
     };
-  }, [workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups, primaryAdapter, secondaryAdapter, loaded]);
+  }, [workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups, primaryAdapter, secondaryAdapter, cloudAdapter, loaded]);
 
   const exportData = async () => {
     const payload: PersistedData = {
@@ -529,8 +539,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
       for (const ad of adapters) {
         await ad.save(payload);
       }
-    } catch (err) {
-      console.warn('Force save failed', err);
+    } catch {
     }
   };
 

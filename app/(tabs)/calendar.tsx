@@ -6,25 +6,20 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   SafeAreaView,
   Alert,
-  Platform,
   FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Calendar, DateObject } from 'react-native-calendars';
+import { Calendar } from 'react-native-calendars';
 import GlassCard from '../../components/ui/GlassCard';
 import BadgePill from '../../components/ui/BadgePill';
-import { colors, gradients, typography } from '../../constants/theme';
+import { colors, gradients, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import { toast } from '../../utils/toast';
-
-function parseISO(dateStr: string) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
+import { todayISO } from '../../utils/date';
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '');
@@ -36,13 +31,15 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+type CalendarDay = { dateString: string };
+
 export default function CalendarScreen() {
   const { workouts, removeWorkout, addWorkout, templates } = useWorkouts();
   const { t } = useTranslation();
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DONE' | 'PLANNED'>('ALL');
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayISO();
 
   const nearestWorkoutDate = useMemo(() => {
     if (workouts.length === 0) return null;
@@ -136,7 +133,7 @@ export default function CalendarScreen() {
     }
 
     return marks;
-  }, [workouts, selectedDate]);
+  }, [dedupedWorkouts, selectedDate]);
 
   const listData = useMemo(() => {
     const base = [...dedupedWorkouts];
@@ -161,17 +158,6 @@ export default function CalendarScreen() {
 
   const totalWorkouts = workouts.length;
 
-  const thisMonthCounts = useMemo(() => {
-    if (workouts.length === 0) return 0;
-    const today = new Date();
-    const month = today.getMonth();
-    const year = today.getFullYear();
-    return workouts.filter((w) => {
-      const d = parseISO(w.date);
-      return d.getFullYear() === year && d.getMonth() === month;
-    }).length;
-  }, [workouts]);
-
   const daySummary = useMemo(() => {
     if (!selectedDate) return null;
     const list = dedupedWorkouts.filter((w) => w.date === selectedDate);
@@ -190,12 +176,12 @@ export default function CalendarScreen() {
     };
   }, [dedupedWorkouts, selectedDate]);
 
-  const handleDayPress = (day: DateObject) => {
+  const handleDayPress = (day: CalendarDay) => {
     setSelectedDate(day.dateString);
   };
 
   const handleDelete = (w: (typeof workouts)[number]) => {
-    Alert.alert(t('calendar.deleteTitle'), t('calendar.deleteConfirm', w.title), [
+    Alert.alert(t('calendar.deleteTitle'), t('calendar.deleteConfirm', undefined, w.title), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),
@@ -219,13 +205,6 @@ export default function CalendarScreen() {
       },
     ]);
   };
-
-  const renderEmptyState = () => (
-    <GlassCard style={styles.emptyCard}>
-      <Text style={styles.emptyTitle}>{t('calendar.emptyHeader')}</Text>
-      <Text style={styles.emptySubtitle}>{t('calendar.emptySub')}</Text>
-    </GlassCard>
-  );
 
   return (
     <View style={styles.gradient}>
@@ -296,7 +275,7 @@ export default function CalendarScreen() {
                       })
                     }
                     activeOpacity={0.9}
-                    accessibilityLabel="Planera pass för vald dag"
+                    accessibilityLabel={t('calendar.planForDayA11y')}
                     accessibilityRole="button"
                   >
                     <Text style={styles.planChipText}>{t('calendar.planForDay')}</Text>
@@ -306,19 +285,19 @@ export default function CalendarScreen() {
                 {daySummary && (
                   <View style={styles.daySummaryRow}>
                     <View style={styles.summaryPill}>
-                      <Text style={styles.summaryLabel}>Pass</Text>
+                      <Text style={styles.summaryLabel}>{t('calendar.summaryPass')}</Text>
                       <Text style={styles.summaryValue}>{daySummary.total}</Text>
                     </View>
                     <View style={styles.summaryPill}>
-                      <Text style={styles.summaryLabel}>Tid</Text>
+                      <Text style={styles.summaryLabel}>{t('calendar.summaryTime')}</Text>
                       <Text style={styles.summaryValue}>
                         {daySummary.duration > 0
                           ? `${daySummary.duration} min`
-                          : 'okänd'}
+                          : t('calendar.meta.durationShortUnknown')}
                       </Text>
                     </View>
                     <View style={styles.summaryPill}>
-                      <Text style={styles.summaryLabel}>Övningar</Text>
+                      <Text style={styles.summaryLabel}>{t('calendar.summaryExercises')}</Text>
                       <Text style={styles.summaryValue}>
                         {daySummary.exercises}
                       </Text>
@@ -360,10 +339,6 @@ export default function CalendarScreen() {
             </>
           }
           renderItem={({ item: w }) => {
-            const exerciseCount =
-              Array.isArray(w.exercises) && typeof w.exercises.length === 'number'
-                ? w.exercises.length
-                : 0;
             const durationLabel = w.durationMinutes
               ? `${w.durationMinutes} min`
               : t('calendar.meta.durationUnknown');
@@ -455,7 +430,7 @@ export default function CalendarScreen() {
                       {w.exercises.length > 3 ? (
                         <View style={styles.exerciseChip}>
                           <Text style={styles.exerciseChipText}>
-                            {t('calendar.moreExercises', w.exercises.length - 3)}
+                            {t('calendar.moreExercises', undefined, w.exercises.length - 3)}
                           </Text>
                         </View>
                       ) : null}
@@ -493,7 +468,7 @@ export default function CalendarScreen() {
                           });
                         }}
                         activeOpacity={0.9}
-                        accessibilityLabel={t('calendar.editA11y', w.title)}
+                        accessibilityLabel={t('calendar.editA11y', undefined, w.title)}
                         accessibilityRole="button"
                       >
                         <Text style={styles.editText}>{t('calendar.edit')}</Text>
@@ -551,12 +526,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   container: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: spacing.sm + spacing.xs,
   },
   title: {
     ...typography.display,
@@ -566,10 +541,10 @@ const styles = StyleSheet.create({
   subtitle: {
     ...typography.caption,
     color: colors.textSoft,
-    marginTop: 4,
+    marginTop: spacing.xs,
   },
   row: {
-    marginBottom: 12,
+    marginBottom: spacing.sm + spacing.xs,
     width: '100%',
   },
   smallCard: {
@@ -593,10 +568,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   calendarCard: {
-    marginBottom: 12,
+    marginBottom: spacing.sm + spacing.xs,
   },
   section: {
-    marginTop: 4,
+    marginTop: spacing.sm,
   },
   sectionTitle: {
     ...typography.title,
@@ -658,8 +633,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
-    marginBottom: 10,
+    marginBottom: spacing.md,
   },
+  glowCard: {},
   workoutTitle: {
     color: colors.textMain,
     fontSize: 14,
@@ -715,32 +691,34 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   statusPill: {
+    minHeight: 30,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
     minWidth: 72,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   statusPillDone: {
-    backgroundColor: '#0b1220',
-    borderColor: colors.primary,
+    backgroundColor: '#052e1d',
+    borderColor: colors.accentGreen,
   },
   statusPillPlanned: {
-    backgroundColor: '#0b1220',
+    backgroundColor: '#20103e',
     borderColor: colors.primary,
   },
   statusText: {
-    color: '#0b1120',
+    color: colors.textMain,
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
   },
   statusTextPlanned: {
-    color: colors.primary,
+    color: '#d8b4fe',
   },
   statusTextDone: {
-    color: colors.primary,
+    color: '#86efac',
   },
   headerPills: {
     flexDirection: 'row',

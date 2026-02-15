@@ -4,7 +4,6 @@ import React, { useMemo } from 'react';
 import {
   SafeAreaView,
   Alert,
-  Platform,
   FlatList,
   StyleSheet,
   Text,
@@ -16,39 +15,13 @@ import GlassCard from '../../components/ui/GlassCard';
 import SkeletonCard from '../../components/ui/SkeletonCard';
 import { colors } from '../../constants/theme';
 import { toast } from '../../utils/toast';
+import { formatDateLong, parseISODate } from '../../utils/date';
 import { useTranslation } from '../../context/TranslationContext';
-
-function parseDate(dateString: string): Date | null {
-  if (!dateString) return null;
-  const parts = dateString.split('-');
-  if (parts.length !== 3) return null;
-  const [year, month, day] = parts.map((p) => parseInt(p, 10));
-  if (!year || !month || !day) return null;
-  return new Date(year, month - 1, day);
-}
-
-function formatNiceDate(date: Date): string {
-  const months = [
-    'januari',
-    'februari',
-    'mars',
-    'april',
-    'maj',
-    'juni',
-    'juli',
-    'augusti',
-    'september',
-    'oktober',
-    'november',
-    'december',
-  ];
-  return `${date.getDate()} ${months[date.getMonth()]}`;
-}
 
 export default function HistoryScreen() {
   const router = useRouter();
   const { workouts, addWorkout, removeWorkout, templates } = useWorkouts();
-  const { t } = useTranslation();
+  const { t, lang } = useTranslation();
 
   const handleStart = (item: typeof sorted[number]) => {
     Haptics.selectionAsync();
@@ -63,7 +36,7 @@ export default function HistoryScreen() {
   };
 
   const handleDelete = (item: typeof sorted[number]) => {
-    Alert.alert(t('history.deleteTitle'), t('history.deleteConfirm', item.title), [
+    Alert.alert(t('history.deleteTitle'), t('history.deleteConfirm', undefined, item.title), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),
@@ -90,15 +63,15 @@ export default function HistoryScreen() {
 
   const sorted = useMemo(() => {
     return [...workouts].sort((a, b) => {
-      const da = parseDate(a.date)?.getTime() ?? 0;
-      const db = parseDate(b.date)?.getTime() ?? 0;
+      const da = parseISODate(a.date)?.getTime() ?? 0;
+      const db = parseISODate(b.date)?.getTime() ?? 0;
       return db - da; // nyaste först
     });
   }, [workouts]);
 
   const renderItem = ({ item }: { item: typeof sorted[number] }) => {
-    const d = parseDate(item.date);
-    const dateNice = d ? formatNiceDate(d) : item.date;
+    const d = parseISODate(item.date);
+    const dateNice = formatDateLong(item.date, lang);
     const templateName = item.sourceTemplateId
       ? templates.find((t) => t.id === item.sourceTemplateId)?.name
       : null;
@@ -159,7 +132,7 @@ export default function HistoryScreen() {
               </View>
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>
-                  {t('history.exerciseCount', item.exercises?.length ?? 0)}
+                  {t('history.exerciseCount', undefined, item.exercises?.length ?? 0)}
                 </Text>
               </View>
               <View style={styles.badge}>
@@ -213,15 +186,15 @@ export default function HistoryScreen() {
         ListHeaderComponent={() => (
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>Historik</Text>
+              <Text style={styles.title}>{t('history.title')}</Text>
               <Text style={styles.subtitle}>
-                Alla pass du har loggat – sorterat efter datum.
+                {t('history.subtitle')}
               </Text>
             </View>
             {sorted.length > 0 && (
               <View style={styles.countBadge}>
                 <Text style={styles.countText}>{sorted.length}</Text>
-                <Text style={styles.countLabel}>pass</Text>
+                <Text style={styles.countLabel}>{t('history.countLabel')}</Text>
               </View>
             )}
           </View>
@@ -234,10 +207,9 @@ export default function HistoryScreen() {
             </>
           ) : (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Ingen historik ännu</Text>
+              <Text style={styles.emptyTitle}>{t('history.emptyTitle')}</Text>
               <Text style={styles.emptyText}>
-                När du loggar pass kommer de att dyka upp här. Börja med att
-                lägga till ett pass från hemskärmen eller “Lägg till”.
+                {t('history.emptyText')}
               </Text>
             </View>
           )

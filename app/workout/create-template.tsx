@@ -59,7 +59,7 @@ export default function CreateTemplateScreen() {
       weight: '',
     },
   ]);
-  const [error, setError] = useState('');
+  const [error] = useState('');
 
   const handleAddExercise = () => {
     setExercises((prev) => [
@@ -102,7 +102,7 @@ export default function CreateTemplateScreen() {
         sets: ex.sets ? Number(ex.sets) : 0,
         reps: ex.reps || '',
         weight: ex.weight ? Number(ex.weight.replace(',', '.')) : 0,
-        muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
+        muscleGroup: t('exercises.groups.Övrigt'),
       }));
 
     if (cleanedExercises.length === 0) {
@@ -254,7 +254,7 @@ export default function CreateTemplateScreen() {
 
                   <View style={styles.inlineRow}>
                     <View style={styles.inlineCol}>
-                      <Text style={styles.labelSmall}>Set</Text>
+                      <Text style={styles.labelSmall}>{t('exerciseDetail.sets')}</Text>
                       <TextInput
                         style={styles.inlineInput}
                         placeholder="3"
@@ -268,7 +268,7 @@ export default function CreateTemplateScreen() {
                     </View>
 
                     <View style={styles.inlineCol}>
-                      <Text style={styles.labelSmall}>Reps</Text>
+                      <Text style={styles.labelSmall}>{t('exerciseDetail.reps')}</Text>
                       <TextInput
                         style={styles.inlineInput}
                         placeholder="8–10"
@@ -281,7 +281,7 @@ export default function CreateTemplateScreen() {
                     </View>
 
                     <View style={styles.inlineCol}>
-                      <Text style={styles.labelSmall}>Vikt (kg)</Text>
+                      <Text style={styles.labelSmall}>{t('exerciseDetail.bestWeight')} ({t('common.kg').toLowerCase()})</Text>
                       <TextInput
                         style={styles.inlineInput}
                         placeholder={t('templateBuilder.weightPlaceholder')}

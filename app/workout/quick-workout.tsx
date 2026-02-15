@@ -67,9 +67,12 @@ const parseWeightInput = (value: string) => {
   const num = parseFloat(normalized);
   return Number.isNaN(num) ? NaN : Math.max(0, num);
 };
-const normalizeMuscleGroup = (value?: string) => {
+const normalizeMuscleGroup = (
+  value?: string,
+  translate?: (path: string, fallback?: string | ((...args: any[]) => string), args?: any) => string
+) => {
   const trimmed = (value || '').trim();
-  return trimmed.length > 0 ? trimmed : t('exercises.groups.Övrigt', 'Övrigt');
+  return trimmed.length > 0 ? trimmed : translate?.('exercises.groups.Övrigt') || 'Övrigt';
 };
 
 const todayString = () => {
@@ -353,8 +356,8 @@ const defaultTitle =
       ...prev,
       {
         id: generateId(),
-        name: t('quick.newExercise', prev.length + 1),
-        muscleGroup: t('exercises.groups.Övrigt', 'Övrigt'),
+        name: t('quick.newExercise', undefined, prev.length + 1),
+        muscleGroup: t('exercises.groups.Övrigt'),
         sets: [{ id: generateId(), reps: '10', weight: '' }],
       },
     ]);
@@ -383,7 +386,7 @@ const defaultTitle =
         {
           id: generateId(),
           name,
-          muscleGroup: normalizeMuscleGroup(group || t('exercises.groups.Övrigt', 'Övrigt')),
+          muscleGroup: normalizeMuscleGroup(group || t('exercises.groups.Övrigt')),
           sets: [{ id: generateId(), reps: '10', weight: '', done: false }],
         },
       ];
@@ -396,7 +399,7 @@ const defaultTitle =
       Alert.alert(t('common.error'), t('quick.customNameError'));
       return;
     }
-    addExerciseFromName(trimmed, t('exercises.groups.Övrigt', 'Övrigt'));
+    addExerciseFromName(trimmed, t('exercises.groups.Övrigt'));
     setCustomName('');
     setShowCustomInput(false);
     Haptics.selectionAsync();
@@ -465,7 +468,7 @@ const defaultTitle =
         sets: ex.sets.length,
         reps: ex.sets[0]?.reps ?? '8–10',
         weight: Number.isNaN(avgWeight) ? 0 : Math.round(avgWeight),
-        muscleGroup: normalizeMuscleGroup(ex.muscleGroup),
+        muscleGroup: normalizeMuscleGroup(ex.muscleGroup, t),
         performedSets: parsedSets,
       };
     });
@@ -514,7 +517,11 @@ const defaultTitle =
 
     Alert.alert(
       t('quick.finishCongratsTitle'),
-      t('quick.finishCongratsBody', { exercises: workoutExercises.length, sets: totalSets, minutes: durationMinutes }),
+      t('quick.finishCongratsBody', undefined, {
+        exercises: workoutExercises.length,
+        sets: totalSets,
+        minutes: durationMinutes,
+      }),
       [
         {
           text: t('quick.saveTemplate'),
@@ -564,7 +571,7 @@ const defaultTitle =
               sets: ex.sets.length,
               reps: ex.sets[0]?.reps ?? '8–10',
               weight: Number.isFinite(avg) ? Math.round(avg) : 0,
-              muscleGroup: normalizeMuscleGroup(ex.muscleGroup),
+              muscleGroup: normalizeMuscleGroup(ex.muscleGroup, t),
               performedSets: sets,
             };
           });
@@ -679,8 +686,8 @@ const defaultTitle =
 
           <GlassCard style={styles.progressCard}>
             <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>Planerade set</Text>
-              <Text style={styles.progressLabel}>{totalSets} set i passet</Text>
+              <Text style={styles.progressTitle}>{t('quick.progressTitle')}</Text>
+              <Text style={styles.progressLabel}>{t('quick.progressLabel', undefined, totalSets)}</Text>
             </View>
 
             <View style={styles.progressBarBackground}>
@@ -693,7 +700,7 @@ const defaultTitle =
             </View>
 
             <Text style={styles.progressHint}>
-              Lägg till set och fyll reps/vikt per set för varje övning.
+              {t('quick.progressHint')}
             </Text>
           </GlassCard>
 
@@ -746,13 +753,13 @@ const defaultTitle =
             <TextInput
               style={[styles.notesInput, { marginTop: 8 }]}
               value={notes}
-              onChangeText={(t) => {
-                if (t.length > 220) {
+              onChangeText={(value) => {
+                if (value.length > 220) {
                   setNotesError(t('quick.notesMax'));
-                  setNotes(t.slice(0, 220));
+                  setNotes(value.slice(0, 220));
                 } else {
                   setNotesError('');
-                  setNotes(t);
+                  setNotes(value);
                 }
               }}
               placeholder={t('quick.notesPlaceholder')}
@@ -787,7 +794,7 @@ const defaultTitle =
                   setShowCustomInput(false);
                   setShowTemplatePicker(false);
                 }}
-                accessibilityLabel="Öppna övningsbibliotek"
+                accessibilityLabel={t('quick.openLibrary')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#022c22" />
@@ -802,7 +809,7 @@ const defaultTitle =
                   setShowExerciseList(false);
                   setShowTemplatePicker(false);
                 }}
-                accessibilityLabel="Lägg till egen övning"
+                accessibilityLabel={t('quick.addCustom')}
                 accessibilityRole="button"
               >
                 <PlusCircle size={14} color="#0f172a" />
@@ -817,7 +824,7 @@ const defaultTitle =
                   setShowExerciseList(false);
                   setShowCustomInput(false);
                 }}
-                accessibilityLabel="Välj rutin"
+                accessibilityLabel={t('quick.chooseRoutine')}
                 accessibilityRole="button"
               >
                 <ListChecks size={14} color="#0b1120" />
@@ -878,12 +885,12 @@ const defaultTitle =
                       </Text>
                     </View>
                   ) : (
-                    templates.map((t, idx) => {
-                      const active = t.id === selectedTemplateId;
+                    templates.map((template, idx) => {
+                      const active = template.id === selectedTemplateId;
                       const isLast = idx === templates.length - 1;
                       return (
                         <TouchableOpacity
-                          key={t.id}
+                          key={template.id}
                           style={[
                             styles.templateRow,
                             !isLast && styles.templateRowDivider,
@@ -891,24 +898,24 @@ const defaultTitle =
                           ]}
                           onPress={() => {
                             Haptics.selectionAsync();
-                            applyTemplate(t);
+                            applyTemplate(template);
                           }}
                           activeOpacity={0.85}
-                          accessibilityLabel={t('quick.templateA11y', t.name)}
+                          accessibilityLabel={t('quick.templateA11y', undefined, template.name)}
                           accessibilityRole="button"
                         >
                           <View style={styles.templateLeft}>
                             <View
                               style={[
                                 styles.templateDot,
-                                { backgroundColor: t.color || colors.primary },
+                                { backgroundColor: template.color || colors.primary },
                               ]}
                             />
                             <View>
-                              <Text style={styles.templateName}>{t.name}</Text>
-                              {t.description ? (
+                              <Text style={styles.templateName}>{template.name}</Text>
+                              {template.description ? (
                                 <Text style={styles.templateMeta} numberOfLines={1}>
-                                  {t.description}
+                                  {template.description}
                                 </Text>
                               ) : null}
                             </View>
@@ -942,7 +949,7 @@ const defaultTitle =
                       <Text style={styles.selectedName}>{ex.name}</Text>
                     </View>
                     <TouchableOpacity onPress={() => removeExercise(ex.id)}>
-                    <Text style={styles.removeText}>{t('common.remove', 'Ta bort')}</Text>
+                    <Text style={styles.removeText}>{t('common.remove')}</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -961,7 +968,6 @@ const defaultTitle =
                 hideIcon
                 style={styles.confirmButton}
                 accessibilityLabel={t('quick.confirmExercises')}
-                accessibilityRole="button"
               />
             )}
           </GlassCard>
@@ -1000,9 +1006,9 @@ const defaultTitle =
           <NeonButton
             title={t('quick.finish')}
             onPress={handleFinish}
-            toastMessage="Avslutar pass"
+            toastMessage={t('quick.finishToast')}
           />
-          <Text style={styles.finishButtonSub}>{totalSets} set i passet</Text>
+          <Text style={styles.finishButtonSub}>{t('quick.finishSummary', undefined, totalSets)}</Text>
         </View>
       </SafeAreaView>
     </LinearGradient>

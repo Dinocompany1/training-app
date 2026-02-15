@@ -1,7 +1,7 @@
 import React from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, View } from 'react-native';
-import { colors, gradients, typography } from '../../constants/theme';
+import { colors, typography } from '../../constants/theme';
 import { toast } from '../../utils/toast';
 
 type Props = {
@@ -27,7 +27,7 @@ export default function NeonButton({
 }: Props) {
   const isGreen = variant === 'green';
   const isGhost = variant === 'ghost';
-  const gradientColors = isGreen
+  const gradientColors: readonly [string, string] = isGreen
     ? [colors.success, '#34d399']
     : [colors.primary, colors.primaryBright];
   const shadowStyle = isGreen

@@ -3,10 +3,13 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useWorkouts } from '../../context/WorkoutsContext';
+import { useTranslation } from '../../context/TranslationContext';
+import { compareISODate } from '../../utils/date';
 
 export default function ExerciseProgressScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const { workouts } = useWorkouts();
+  const { t } = useTranslation();
 
   const history = workouts
     .flatMap((w) =>
@@ -18,6 +21,7 @@ export default function ExerciseProgressScreen() {
             : Array.from({ length: ex.sets }).map(() => ({
                 reps: ex.reps,
                 weight: ex.weight,
+                done: false,
               }));
 
           return performed.map((set, idx) => ({
@@ -31,7 +35,7 @@ export default function ExerciseProgressScreen() {
           }));
         })
     )
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    .sort((a, b) => compareISODate(a.date, b.date));
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -39,33 +43,33 @@ export default function ExerciseProgressScreen() {
 
       {history.length === 0 ? (
         <Text style={styles.empty}>
-          Inga loggar hittades för denna övning ännu.
+          {t('exerciseDetail.empty')}
         </Text>
       ) : (
         history.map((h, index) => (
           <View key={index} style={styles.card}>
             <Text style={styles.date}>{h.date}</Text>
             <Text style={styles.passTitle}>{h.title}</Text>
-            <Text style={styles.setLabel}>Set {h.setNumber}</Text>
+            <Text style={styles.setLabel}>{t('exerciseDetail.setNumber', undefined, h.setNumber)}</Text>
 
             <View style={styles.row}>
-              <Text style={styles.label}>Reps:</Text>
+              <Text style={styles.label}>{t('exerciseDetail.reps')}:</Text>
               <Text style={styles.value}>{h.reps}</Text>
             </View>
 
             <View style={styles.row}>
-              <Text style={styles.label}>Vikt:</Text>
+              <Text style={styles.label}>{t('exerciseDetail.bestWeight')}:</Text>
               <Text style={styles.value}>{h.weight} kg</Text>
             </View>
 
             <View style={styles.row}>
-              <Text style={styles.label}>Volym:</Text>
+              <Text style={styles.label}>{t('exerciseDetail.volume')}:</Text>
               <Text style={[styles.value, styles.volume]}>
                 {h.volume}
               </Text>
             </View>
 
-            {h.done && <Text style={styles.doneBadge}>Klart ✅</Text>}
+            {h.done && <Text style={styles.doneBadge}>{t('workoutDetail.setDone')} ✅</Text>}
           </View>
         ))
       )}

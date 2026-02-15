@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 import GlassCard from '../../components/ui/GlassCard';
-import NeonButton from '../../components/ui/NeonButton';
 import BadgePill from '../../components/ui/BadgePill';
 import { colors, gradients, typography } from '../../constants/theme';
 import EmptyState from '../../components/ui/EmptyState';
@@ -24,6 +23,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useTranslation } from '../../context/TranslationContext';
+import { todayISO } from '../../utils/date';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -31,13 +31,10 @@ export default function ProfileScreen() {
   const { lang, setLanguage, t } = useTranslation();
   const [goalInput, setGoalInput] = useState(String(weeklyGoal));
   const [goalError, setGoalError] = useState('');
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [darkMode] = useState(true); // bara visuellt – appen är redan dark
   const totalWorkouts = workouts.length;
-  const noWorkouts = totalWorkouts === 0;
   const [selectedUri, setSelectedUri] = useState<string | null>(null);
   const [photoNote, setPhotoNote] = useState('');
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayISO();
 
   const handleGoalBlur = () => {
     const clean = goalInput.replace(/[^0-9]/g, '');
@@ -82,8 +79,8 @@ export default function ProfileScreen() {
               <Text style={styles.langLabel}>{t('profile.language')}</Text>
               <View style={styles.langButtons}>
                 {[
-                  { key: 'sv', label: t('profile.langSv', 'Svenska') },
-                  { key: 'en', label: t('profile.langEn', 'English') },
+                  { key: 'sv', label: t('profile.langSv') },
+                  { key: 'en', label: t('profile.langEn') },
                 ].map((item) => {
                   const active = lang === item.key;
                   return (

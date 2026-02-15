@@ -8,11 +8,13 @@ import {
   User,
 } from 'lucide-react-native';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../constants/theme';
 import { useTranslation } from '../../context/TranslationContext';
 
 export default function TabLayout() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const tint = colors.primary;
   const bg = '#020617';
   const border = 'rgba(15,23,42,1)';
@@ -27,8 +29,8 @@ export default function TabLayout() {
           backgroundColor: bg,
           borderTopColor: border,
           borderTopWidth: 1,
-          height: 70,
-          paddingBottom: 10,
+          height: 60 + insets.bottom,
+          paddingBottom: Math.max(8, insets.bottom),
           paddingTop: 6,
         },
       }}

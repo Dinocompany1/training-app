@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import GlassCard from '../../components/ui/GlassCard';
@@ -73,15 +72,15 @@ export default function MuscleGroupsScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>{t('stats.muscleTitle', 'Muskelgrupper')}</Text>
+        <Text style={styles.title}>{t('stats.muscleTitle')}</Text>
         <Text style={styles.subtitle}>
-          {t('stats.muscleSubtitle', 'Fördelning av loggade övningar per muskelgrupp.')}
+          {t('stats.muscleSubtitle')}
         </Text>
 
         {muscles.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyTitle}>{t('stats.muscleEmpty', 'Inga loggade övningar ännu.')}</Text>
-            <Text style={styles.emptyText}>{t('stats.muscleNoDate', 'Logga ett pass för att se muskelgrupper här.')}</Text>
+            <Text style={styles.emptyTitle}>{t('stats.muscleEmpty')}</Text>
+            <Text style={styles.emptyText}>{t('stats.muscleNoDate')}</Text>
           </View>
         ) : (
           muscles.map((m) => (
@@ -92,18 +91,18 @@ export default function MuscleGroupsScreen() {
                   <Text style={styles.muscleName}>{m.name}</Text>
                   <View style={styles.tags}>
                     <View style={styles.tag}>
-                      <Text style={styles.tagText}>{t('stats.muscleSessionsTag', 'Pass')}: {m.sessions}</Text>
+                      <Text style={styles.tagText}>{t('stats.muscleSessionsTag')}: {m.sessions}</Text>
                     </View>
                     <View style={styles.tag}>
-                      <Text style={styles.tagText}>{t('stats.muscleSetsTag', 'Set')}: {m.sets}</Text>
+                      <Text style={styles.tagText}>{t('stats.muscleSetsTag')}: {m.sets}</Text>
                     </View>
                     <View style={styles.tag}>
                       <Text style={styles.tagText}>
-                        {t('stats.muscleLast', 'Senast tränad')}: {m.lastDate ?? '–'}
+                        {t('stats.muscleLast')}: {m.lastDate ?? '–'}
                       </Text>
                     </View>
                     <View style={styles.tag}>
-                      <Text style={styles.tagText}>{t('stats.muscleVolumeTag', 'Volym')}: {Math.round(m.volume)}</Text>
+                      <Text style={styles.tagText}>{t('stats.muscleVolumeTag')}: {Math.round(m.volume)}</Text>
                     </View>
                   </View>
                   <View style={styles.barRow}>

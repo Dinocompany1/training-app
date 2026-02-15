@@ -3,9 +3,11 @@ import { Image } from 'expo-image';
 import React from 'react';
 import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { colors } from '../constants/theme';
+import { useTranslation } from '../context/TranslationContext';
 
 export default function ModalScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { uri } = useLocalSearchParams<{ uri?: string }>();
 
   const safeUri = typeof uri === 'string' ? uri : undefined;
@@ -13,13 +15,13 @@ export default function ModalScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <TouchableOpacity style={styles.close} onPress={() => router.back()}>
-        <Text style={styles.closeText}>Stäng</Text>
+        <Text style={styles.closeText}>{t('common.close')}</Text>
       </TouchableOpacity>
       {safeUri ? (
         <Image source={{ uri: safeUri }} style={styles.image} contentFit="contain" />
       ) : (
         <View style={styles.placeholder}>
-          <Text style={styles.placeholderText}>Ingen bild att visa</Text>
+          <Text style={styles.placeholderText}>{t('common.noImage')}</Text>
         </View>
       )}
     </SafeAreaView>

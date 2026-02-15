@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, DimensionValue } from 'react-native';
 
 type Props = {
-  width?: number | string;
+  width?: DimensionValue;
   height?: number;
 };
 
