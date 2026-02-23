@@ -1,9 +1,10 @@
 import type { AppLang } from './date';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 export type AIInsightRequest = {
   lang: AppLang;
   todayISO: string;
-  period: '7d' | '30d' | 'all' | 'custom';
+  period: '7d' | '30d' | '90d' | 'year' | 'all' | 'custom';
   weeklyGoal: number;
   summary: {
     sessions: number;
@@ -93,11 +94,15 @@ export const getAIInsight = async (payload: AIInsightRequest): Promise<AIInsight
   if (!endpoint) return fallbackInsight(payload);
 
   try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const response = await fetchWithTimeout(
+      endpoint,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+      { timeoutMs: 12000, retries: 1 }
+    );
     if (!response.ok) return fallbackInsight(payload);
     const data = (await response.json()) as unknown;
     if (!isInsightResponse(data)) return fallbackInsight(payload);
@@ -106,4 +111,3 @@ export const getAIInsight = async (payload: AIInsightRequest): Promise<AIInsight
     return fallbackInsight(payload);
   }
 };
-

@@ -11,39 +11,31 @@ import {
   TrendingDown,
   Minus,
   Trophy,
-  X,
 } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  SafeAreaView,
-  Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import GlassCard from '../../components/ui/GlassCard';
 import BadgePill from '../../components/ui/BadgePill';
-import { colors, gradients, spacing, typography } from '../../constants/theme';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import StaggerReveal from '../../components/ui/StaggerReveal';
+import { colors, gradients, layout, radii, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import { compareISODate, formatDateShort, parseISODate, toISODate } from '../../utils/date';
+import { parseRepsValue } from '../../utils/reps';
 import storage from '../../utils/safeStorage';
 import { getAIInsight, type AIInsightResponse, type AIInsightRequest } from '../../utils/aiInsights';
 
-const parseRepsValue = (reps: string) => {
-  if (!reps) return 0;
-  const nums = reps.match(/\d+/g);
-  if (!nums || nums.length === 0) return 0;
-  const values = nums.map((n) => Number(n)).filter((n) => !Number.isNaN(n));
-  if (values.length === 0) return 0;
-  const avg = values.reduce((s, n) => s + n, 0) / values.length;
-  return Math.max(0, Math.round(avg));
-};
-
 type TrendMetric = 'sessions' | 'minutes' | 'volume';
+type StatsPeriod = '7d' | '30d' | '90d' | 'year' | 'all' | 'custom';
 
 const parseWeightValue = (w?: number) => {
   if (w == null) return 0;
@@ -62,12 +54,29 @@ const startOfWeekDate = (date: Date) => {
   return dayOnly;
 };
 
-const workoutVolume = (workout: { exercises?: any[] }) =>
+const getPeriodDays = (period: StatsPeriod): number | null => {
+  if (period === '7d') return 7;
+  if (period === '30d') return 30;
+  if (period === '90d') return 90;
+  if (period === 'year') return 365;
+  return null;
+};
+
+type WorkoutLike = {
+  exercises?: {
+    sets?: number;
+    reps?: string;
+    weight?: number;
+    performedSets?: { reps: string; weight?: number }[];
+  }[];
+};
+
+const workoutVolume = (workout: WorkoutLike) =>
   (workout.exercises || []).reduce((v, ex) => {
     const sets = ex.performedSets && ex.performedSets.length > 0 ? ex.performedSets : [];
     if (sets.length === 0) {
-      const repsNum = parseRepsValue(ex.reps);
-      return v + ex.sets * repsNum * parseWeightValue(ex.weight);
+      const repsNum = parseRepsValue(ex.reps || '');
+      return v + (ex.sets || 0) * repsNum * parseWeightValue(ex.weight);
     }
     return (
       v +
@@ -97,10 +106,9 @@ export default function StatsScreen() {
     () => (workouts || []).filter((w) => w.isCompleted),
     [workouts]
   );
-  const [period, setPeriod] = useState<'7d' | '30d' | 'all' | 'custom'>('7d');
+  const [period, setPeriod] = useState<StatsPeriod>('7d');
   const [customStart, setCustomStart] = useState<Date | null>(null);
   const [customEnd, setCustomEnd] = useState<Date | null>(null);
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
   const [activePicker, setActivePicker] = useState<'start' | 'end' | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('sessions');
   const [topSort, setTopSort] = useState<'sessions' | 'volume' | 'weight'>('sessions');
@@ -108,6 +116,7 @@ export default function StatsScreen() {
   const [selectedTrendIndex, setSelectedTrendIndex] = useState<number | null>(null);
   const [aiInsight, setAiInsight] = useState<AIInsightResponse | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const aiRequestRef = useRef(0);
 
   const resetStatsFilters = useCallback(() => {
     setPeriod('7d');
@@ -115,7 +124,6 @@ export default function StatsScreen() {
     setCustomEnd(null);
     setTrendMetric('sessions');
     setTopSort('sessions');
-    setShowCustomPicker(false);
     setActivePicker(null);
   }, []);
 
@@ -135,6 +143,8 @@ export default function StatsScreen() {
         if (
           parsed.period === '7d' ||
           parsed.period === '30d' ||
+          parsed.period === '90d' ||
+          parsed.period === 'year' ||
           parsed.period === 'all' ||
           parsed.period === 'custom'
         ) {
@@ -186,7 +196,7 @@ export default function StatsScreen() {
   const periodFiltered = useMemo(() => {
     if (period === 'all') return completedWorkouts;
     if (period === 'custom') {
-      if (!customStart && !customEnd) return completedWorkouts;
+      if (!customStart && !customEnd) return [];
       const rawStart = customStart || customEnd!;
       const rawEnd = customEnd || customStart!;
       const start = rawStart <= rawEnd ? startOfDay(rawStart) : startOfDay(rawEnd);
@@ -197,7 +207,8 @@ export default function StatsScreen() {
         return d >= start && d <= end;
       });
     }
-    const days = period === '7d' ? 7 : 30;
+    const days = getPeriodDays(period);
+    if (!days) return completedWorkouts;
     const cutoff = new Date(todayOnly);
     cutoff.setDate(cutoff.getDate() - days + 1);
     return completedWorkouts.filter((w) => {
@@ -219,6 +230,76 @@ export default function StatsScreen() {
     return t('stats.customRangeLabel', undefined, { start: startText, end: endText });
   }, [period, customStart, customEnd, t, formatShortDate]);
 
+  const customMarkedDates = useMemo(() => {
+    if (!customStart && !customEnd) return {};
+    const start = customStart || customEnd!;
+    const end = customEnd || customStart!;
+    const orderedStart = start <= end ? start : end;
+    const orderedEnd = end >= start ? end : start;
+    const startIso = toISODate(orderedStart);
+    const endIso = toISODate(orderedEnd);
+
+    const marks: Record<
+      string,
+      {
+        startingDay: boolean;
+        endingDay: boolean;
+        color: string;
+        textColor: string;
+      }
+    > = {};
+    if (startIso === endIso) {
+      marks[startIso] = {
+        startingDay: true,
+        endingDay: true,
+        color: colors.primary,
+        textColor: colors.background,
+      };
+      return marks;
+    }
+
+    let cursor = new Date(orderedStart);
+    while (cursor <= orderedEnd) {
+      const iso = toISODate(cursor);
+      const isStart = iso === startIso;
+      const isEnd = iso === endIso;
+      marks[iso] = {
+        color: colors.primary,
+        textColor: colors.background,
+        startingDay: isStart,
+        endingDay: isEnd,
+      };
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return marks;
+  }, [customStart, customEnd]);
+
+  const customSelectionHint = useMemo(() => {
+    if (period !== 'custom') return '';
+    return activePicker === 'end' ? t('stats.pickEnd') : t('stats.pickStart');
+  }, [activePicker, period, t]);
+
+  const handleCustomDatePick = useCallback(
+    (day: CalendarDay) => {
+      const picked = parseISODate(day.dateString);
+      if (!picked) return;
+      if (activePicker === 'end' && customStart) {
+        const orderedStart = picked < customStart ? picked : customStart;
+        const orderedEnd = picked < customStart ? customStart : picked;
+        setCustomStart(orderedStart);
+        setCustomEnd(orderedEnd);
+        setActivePicker('start');
+      } else {
+        // Starta alltid en ny intervall-selektion med startdatum först.
+        setCustomStart(picked);
+        setCustomEnd(null);
+        setActivePicker('end');
+      }
+      setPeriod('custom');
+    },
+    [activePicker, customStart]
+  );
+
   const periodSummary = useMemo(() => {
     const totalMinutes = periodFiltered.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
     const activeDays = new Set(periodFiltered.map((w) => w.date)).size;
@@ -234,8 +315,8 @@ export default function StatsScreen() {
   }, [periodFiltered]);
 
   const previousSummary = useMemo(() => {
-    if (period !== '7d' && period !== '30d') return null;
-    const days = period === '7d' ? 7 : 30;
+    const days = getPeriodDays(period);
+    if (!days) return null;
 
     const prevEnd = new Date(todayOnly);
     prevEnd.setDate(prevEnd.getDate() - days);
@@ -257,6 +338,53 @@ export default function StatsScreen() {
     };
   }, [completedWorkouts, period, todayOnly]);
 
+  const weeklyKpis = useMemo(() => {
+    const currentWeekStart = startOfWeekDate(todayOnly);
+    const currentWeekEnd = new Date(currentWeekStart);
+    currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+
+    const previousWeekStart = new Date(currentWeekStart);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    const previousWeekEnd = new Date(currentWeekStart);
+    previousWeekEnd.setDate(previousWeekEnd.getDate() - 1);
+
+    const inRange = (iso: string, start: Date, end: Date) => {
+      const d = parseISODate(iso);
+      if (!d) return false;
+      return d >= start && d <= end;
+    };
+
+    const currentWeekWorkouts = completedWorkouts.filter((w) =>
+      inRange(w.date, currentWeekStart, currentWeekEnd)
+    );
+    const previousWeekWorkouts = completedWorkouts.filter((w) =>
+      inRange(w.date, previousWeekStart, previousWeekEnd)
+    );
+
+    const currentWeekMinutes = currentWeekWorkouts.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
+    const previousWeekMinutes = previousWeekWorkouts.reduce((sum, w) => sum + (w.durationMinutes || 0), 0);
+    const currentWeekVolume = Math.round(currentWeekWorkouts.reduce((sum, w) => sum + workoutVolume(w), 0));
+    const previousWeekVolume = Math.round(previousWeekWorkouts.reduce((sum, w) => sum + workoutVolume(w), 0));
+
+    const safeGoal = Number.isFinite(weeklyGoal) && weeklyGoal > 0 ? weeklyGoal : 0;
+    const goalReached = safeGoal > 0 && currentWeekWorkouts.length >= safeGoal;
+
+    return {
+      sessions: currentWeekWorkouts.length,
+      goal: safeGoal,
+      goalReached,
+      minutes: currentWeekMinutes,
+      minutesDelta: currentWeekMinutes - previousWeekMinutes,
+      volume: currentWeekVolume,
+      volumeDelta: currentWeekVolume - previousWeekVolume,
+    };
+  }, [completedWorkouts, todayOnly, weeklyGoal]);
+
+  const formatSignedDelta = useCallback((value: number, unit: 'min' | 'kg') => {
+    const rounded = Math.round(value);
+    return `${rounded >= 0 ? '+' : ''}${rounded} ${unit}`;
+  }, []);
+
   const trendPoints = useMemo(() => {
     if (periodFiltered.length === 0) return [] as {
       key: string;
@@ -266,11 +394,12 @@ export default function StatsScreen() {
       volume: number;
     }[];
 
-    if (period === '7d') {
+    if (period === '7d' || period === '30d') {
+      const daysCount = period === '7d' ? 7 : 30;
       const latest = new Date(todayOnly);
-      const days = Array.from({ length: 7 }, (_, index) => {
+      const days = Array.from({ length: daysCount }, (_, index) => {
         const d = new Date(latest);
-        d.setDate(d.getDate() - (6 - index));
+        d.setDate(d.getDate() - (daysCount - 1 - index));
         const iso = toISODate(d);
         return {
           key: iso,
@@ -292,10 +421,41 @@ export default function StatsScreen() {
       return days;
     }
 
+    if (period === 'year') {
+      const months = Array.from({ length: 12 }, (_, index) => {
+        const d = new Date(todayOnly.getFullYear(), todayOnly.getMonth() - (11 - index), 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const label = d.toLocaleDateString(lang === 'sv' ? 'sv-SE' : 'en-US', { month: 'short' });
+        return {
+          key,
+          label,
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          sessions: 0,
+          minutes: 0,
+          volume: 0,
+        };
+      });
+
+      periodFiltered.forEach((w) => {
+        const d = parseISODate(w.date);
+        if (!d) return;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const target = months.find((bucket) => bucket.key === key);
+        if (!target) return;
+        target.sessions += 1;
+        target.minutes += w.durationMinutes || 0;
+        target.volume += workoutVolume(w);
+      });
+
+      return months.map(({ year, month, ...rest }) => rest);
+    }
+
+    const weekCount = period === '90d' ? 13 : 6;
     const latestWeekStart = startOfWeekDate(todayOnly);
-    const weeks = Array.from({ length: 6 }, (_, index) => {
+    const weeks = Array.from({ length: weekCount }, (_, index) => {
       const start = new Date(latestWeekStart);
-      start.setDate(start.getDate() - (5 - index) * 7);
+      start.setDate(start.getDate() - (weekCount - 1 - index) * 7);
       const end = new Date(start);
       end.setDate(end.getDate() + 6);
       return {
@@ -320,7 +480,7 @@ export default function StatsScreen() {
     });
 
     return weeks.map(({ start, end, ...rest }) => rest);
-  }, [periodFiltered, period, todayOnly, formatShortDate]);
+  }, [periodFiltered, period, todayOnly, formatShortDate, lang]);
 
   const trendMetrics = useMemo(
     () => [
@@ -331,7 +491,12 @@ export default function StatsScreen() {
     [t]
   );
 
-  const trendGranularity = period === '7d' ? 'day' : 'week';
+  const trendGranularity =
+    period === '7d' || period === '30d'
+      ? 'day'
+      : period === 'year'
+        ? 'month'
+        : 'week';
 
   const activeTrend = useMemo(() => {
     const values = trendPoints.map((point) => Number(point[trendMetric]));
@@ -389,6 +554,15 @@ export default function StatsScreen() {
     };
   }, [selectedTrendPoint, trendMetric, trendPoints]);
 
+  const trendLabelStride = useMemo(() => {
+    const total = trendPoints.length;
+    if (total <= 8) return 1;
+    if (total <= 14) return 2;
+    if (total <= 20) return 3;
+    if (total <= 31) return 5;
+    return 4;
+  }, [trendPoints.length]);
+
   const trendDirection = useMemo(() => {
     if (activeTrend.delta > 0) {
       return {
@@ -401,7 +575,7 @@ export default function StatsScreen() {
       return {
         key: 'down' as const,
         label: t('stats.trendDirectionDown'),
-        color: '#ef4444',
+        color: colors.accent,
       };
     }
     return {
@@ -425,7 +599,8 @@ export default function StatsScreen() {
     };
 
     const map = new Map<string, TopEntry>();
-    periodFiltered.forEach((w) => {
+    const sortedByDate = [...periodFiltered].sort((a, b) => compareISODate(a.date, b.date));
+    sortedByDate.forEach((w) => {
       (w.exercises || []).forEach((ex) => {
         if (!ex.name) return;
         if (!map.has(ex.name)) {
@@ -455,6 +630,7 @@ export default function StatsScreen() {
         }, 0);
 
         const exerciseMax = Math.max(parseWeightValue(ex.weight), setMax);
+        const previousBest = entry.bestWeight;
         entry.bestWeight = Math.max(entry.bestWeight, exerciseMax);
         entry.totalVolume += setVolume;
         entry.totalSets += ex.sets || sets.length || 0;
@@ -465,9 +641,11 @@ export default function StatsScreen() {
 
         if (compareISODate(w.date, entry.lastDate) > 0) {
           entry.lastDelta =
-            setMax > 0 && entry.bestWeight > 0
-              ? setMax - entry.bestWeight
-              : null;
+            exerciseMax > 0 && previousBest > 0
+              ? exerciseMax - previousBest
+              : exerciseMax > 0 && previousBest === 0
+                ? exerciseMax
+                : null;
           entry.lastDate = w.date;
           entry.lastCompleted = !!w.isCompleted;
         }
@@ -506,16 +684,28 @@ export default function StatsScreen() {
     [lang, todayOnly, period, weeklyGoal, periodSummary, topExercises]
   );
 
-  const loadAIInsight = useCallback(async () => {
+  const runAIInsight = useCallback(async (payload: AIInsightRequest) => {
+    const requestId = aiRequestRef.current + 1;
+    aiRequestRef.current = requestId;
     setAiLoading(true);
-    const insight = await getAIInsight(aiPayload);
+    const insight = await getAIInsight(payload);
+    if (requestId !== aiRequestRef.current) return;
     setAiInsight(insight);
     setAiLoading(false);
-  }, [aiPayload]);
+  }, []);
+
+  const loadAIInsight = useCallback(async () => {
+    await runAIInsight(aiPayload);
+  }, [aiPayload, runAIInsight]);
 
   useEffect(() => {
-    loadAIInsight();
-  }, [loadAIInsight]);
+    const timer = setTimeout(async () => {
+      await runAIInsight(aiPayload);
+    }, 280);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [aiPayload, runAIInsight]);
 
   const pbData = useMemo(() => {
     type PBEntry = {
@@ -611,7 +801,7 @@ export default function StatsScreen() {
   }, [periodFiltered, todayOnly]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
       <View style={styles.full}>
         <LinearGradient
           colors={gradients.appBackground}
@@ -622,49 +812,169 @@ export default function StatsScreen() {
           contentContainerStyle={{ paddingBottom: spacing.xxxl }}
           showsVerticalScrollIndicator={false}
         >
-        <Text style={styles.title}>{t('stats.title')}</Text>
-        <Text style={styles.subtitle}>{t('stats.subtitle')}</Text>
+        <StaggerReveal delay={40}>
+          <ScreenHeader title={t('stats.title')} subtitle={t('stats.subtitle')} tone="violet" />
+        </StaggerReveal>
 
-        {/* Periodfilter */}
-        <View style={styles.filterRow}>
-        {(['7d', '30d', 'all', 'custom'] as const).map((p) => {
-          const active = period === p;
-          return (
-            <BadgePill
-              key={p}
-              label={t(`stats.filters.${p}`)}
-              tone={active ? 'primary' : 'neutral'}
-              style={active ? { ...styles.filterChip, ...styles.filterChipActive } : styles.filterChip}
+        <StaggerReveal delay={80}>
+          <GlassCard style={styles.filterPanel} elevated={false} tone="violet">
+          <View style={styles.filterRow}>
+            {(['7d', '30d', '90d', 'year', 'all', 'custom'] as const).map((p) => {
+              const active = period === p;
+              return (
+                <BadgePill
+                  key={p}
+                  label={t(`stats.filters.${p}`)}
+                  tone={active ? 'primary' : 'neutral'}
+                  style={active ? { ...styles.filterChip, ...styles.filterChipActive } : styles.filterChip}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setPeriod(p);
+                    if (p === 'custom') {
+                      setActivePicker('start');
+                    }
+                  }}
+                />
+              );
+            })}
+          </View>
+          {period === 'custom' ? (
+            <View style={styles.customInlineWrap}>
+              <Text style={styles.customRangeText}>{periodRangeLabel}</Text>
+              <Text style={styles.customInlineHint}>
+                {t('stats.datePickerTapHint')} {customSelectionHint}
+              </Text>
+              <View style={styles.customStepRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.customStepButton,
+                    activePicker === 'start' && styles.customStepButtonActive,
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setActivePicker('start');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('stats.pickStart')}
+                >
+                  <Text
+                    style={[
+                      styles.customStepText,
+                      activePicker === 'start' && styles.customStepTextActive,
+                    ]}
+                  >
+                    {t('stats.startLabel')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.customStepButton,
+                    activePicker === 'end' && styles.customStepButtonActive,
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setActivePicker('end');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('stats.pickEnd')}
+                >
+                  <Text
+                    style={[
+                      styles.customStepText,
+                      activePicker === 'end' && styles.customStepTextActive,
+                    ]}
+                  >
+                    {t('stats.endLabel')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.customDateRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.customDateBox,
+                    activePicker === 'start' && styles.customDateBoxActive,
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setActivePicker('start');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('stats.pickStart')}
+                >
+                  <Text
+                    style={[
+                      styles.customDateLabel,
+                      activePicker === 'start' && styles.customDateLabelActive,
+                    ]}
+                  >
+                    {t('stats.startLabel')}
+                  </Text>
+                  <Text style={styles.customDateValue}>
+                    {customStart ? formatDate(customStart) : t('stats.startPlaceholder')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.customDateBox,
+                    activePicker === 'end' && styles.customDateBoxActive,
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setActivePicker('end');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('stats.pickEnd')}
+                >
+                  <Text
+                    style={[
+                      styles.customDateLabel,
+                      activePicker === 'end' && styles.customDateLabelActive,
+                    ]}
+                  >
+                    {t('stats.endLabel')}
+                  </Text>
+                  <Text style={styles.customDateValue}>
+                    {customEnd ? formatDate(customEnd) : t('stats.endPlaceholder')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.customInlineCalendar}>
+                <Calendar
+                  current={formatDate(customStart || customEnd || todayOnly)}
+                  markingType="period"
+                  onDayPress={handleCustomDatePick}
+                  markedDates={customMarkedDates}
+                  theme={{
+                    backgroundColor: colors.backgroundSoft,
+                    calendarBackground: colors.backgroundSoft,
+                    monthTextColor: colors.textMain,
+                    dayTextColor: colors.textMain,
+                    textDisabledColor: colors.textSoft,
+                    arrowColor: colors.textMain,
+                  }}
+                />
+              </View>
+            </View>
+          ) : null}
+          <View style={styles.filterActionsRow}>
+            <TouchableOpacity
+              style={styles.filterResetButton}
+              activeOpacity={0.85}
               onPress={() => {
                 Haptics.selectionAsync();
-                setPeriod(p);
-                if (p === 'custom') {
-                  setShowCustomPicker(true);
-                }
+                resetStatsFilters();
               }}
-            />
-          );
-        })}
-      </View>
-      {period === 'custom' ? (
-        <Text style={styles.customRangeText}>{periodRangeLabel}</Text>
-      ) : null}
-      <View style={styles.filterActionsRow}>
-        <TouchableOpacity
-          style={styles.filterResetButton}
-          activeOpacity={0.85}
-          onPress={() => {
-            Haptics.selectionAsync();
-            resetStatsFilters();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={t('stats.resetFilters')}
-        >
-          <Text style={styles.filterResetText}>{t('stats.resetFilters')}</Text>
-        </TouchableOpacity>
-      </View>
+              accessibilityRole="button"
+              accessibilityLabel={t('stats.resetFilters')}
+            >
+              <Text style={styles.filterResetText}>{t('stats.resetFilters')}</Text>
+            </TouchableOpacity>
+          </View>
+          </GlassCard>
+        </StaggerReveal>
       {periodFiltered.length === 0 ? (
-        <GlassCard style={styles.card} elevated={false}>
+        <StaggerReveal delay={120}>
+          <GlassCard style={styles.card} elevated={false} tone="violet">
           <Text style={styles.cardTitle}>{t('stats.periodEmptyTitle')}</Text>
           <Text style={styles.cardText}>{t('stats.periodEmptySubtitle')}</Text>
           <View style={styles.progressButtons}>
@@ -684,7 +994,7 @@ export default function StatsScreen() {
               onPress={() => {
                 Haptics.selectionAsync();
                 setPeriod('custom');
-                setShowCustomPicker(true);
+                setActivePicker('start');
               }}
               accessibilityRole="button"
               accessibilityLabel={t('stats.periodEmptyCustomBtn')}
@@ -692,11 +1002,63 @@ export default function StatsScreen() {
               <Text style={styles.pbEmptyButtonText}>{t('stats.periodEmptyCustomBtn')}</Text>
             </TouchableOpacity>
           </View>
-        </GlassCard>
+          </GlassCard>
+        </StaggerReveal>
       ) : null}
 
-      {/* PERIODSNAPSHOT */}
-      <GlassCard style={styles.card} elevated={false}>
+      {period === '7d' ? (
+        <StaggerReveal delay={160}>
+          <GlassCard style={styles.card} elevated={false} tone="teal">
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.cardHeaderLeft}>
+              <View style={styles.iconCircle}>
+                <Sparkles size={18} color={colors.accentBlue} />
+              </View>
+              <View>
+                <Text style={styles.cardTitle}>{t('stats.weeklyKpiTitle')}</Text>
+                <Text style={styles.cardText}>{t('stats.weeklyKpiSubtitle')}</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.weeklyKpiRow}>
+            <View style={styles.weeklyKpiItem}>
+              <Text style={styles.statLabel}>{t('stats.weeklyKpiGoal')}</Text>
+              <Text style={styles.statValue}>
+                {weeklyKpis.goal > 0
+                  ? `${weeklyKpis.sessions}/${weeklyKpis.goal}`
+                  : `${weeklyKpis.sessions}`}
+              </Text>
+              <Text style={styles.progressLabel}>
+                {weeklyKpis.goal > 0
+                  ? weeklyKpis.goalReached
+                    ? t('stats.weeklyKpiGoalReached')
+                    : t('stats.weeklyKpiGoalLeft', undefined, {
+                        count: Math.max(weeklyKpis.goal - weeklyKpis.sessions, 0),
+                      })
+                  : t('stats.weeklyKpiNoGoal')}
+              </Text>
+            </View>
+            <View style={styles.weeklyKpiItem}>
+              <Text style={styles.statLabel}>{t('stats.weeklyKpiVolume')}</Text>
+              <Text style={styles.statValue}>{weeklyKpis.volume}</Text>
+              <Text style={styles.progressLabel}>
+                {t('stats.weeklyKpiVsLast', undefined, formatSignedDelta(weeklyKpis.volumeDelta, 'kg'))}
+              </Text>
+            </View>
+            <View style={styles.weeklyKpiItem}>
+              <Text style={styles.statLabel}>{t('stats.weeklyKpiMinutes')}</Text>
+              <Text style={styles.statValue}>{weeklyKpis.minutes}</Text>
+              <Text style={styles.progressLabel}>
+                {t('stats.weeklyKpiVsLast', undefined, formatSignedDelta(weeklyKpis.minutesDelta, 'min'))}
+              </Text>
+            </View>
+          </View>
+          </GlassCard>
+        </StaggerReveal>
+      ) : null}
+
+      <StaggerReveal delay={200}>
+        <GlassCard style={styles.card} elevated={false} tone="blue">
         <View style={styles.cardHeaderRow}>
           <View style={styles.cardHeaderLeft}>
             <View style={styles.iconCircle}>
@@ -743,10 +1105,12 @@ export default function StatsScreen() {
               })
             : t('stats.periodDeltaUnavailable')}
         </Text>
-      </GlassCard>
+        </GlassCard>
+      </StaggerReveal>
 
       {/* AI INSIGHTS */}
-      <GlassCard style={styles.card} elevated={false}>
+      <StaggerReveal delay={240}>
+        <GlassCard style={styles.card} elevated={false} tone="violet">
         <View style={styles.cardHeaderRow}>
           <View style={styles.cardHeaderLeft}>
             <View style={styles.iconCircle}>
@@ -788,10 +1152,12 @@ export default function StatsScreen() {
             ) : null}
           </View>
         ) : null}
-      </GlassCard>
+        </GlassCard>
+      </StaggerReveal>
 
       {/* TRENDS */}
-      <GlassCard style={styles.card} elevated={false}>
+      <StaggerReveal delay={280}>
+        <GlassCard style={styles.card} elevated={false} tone="teal">
         <View style={styles.cardHeaderRow}>
           <View style={styles.cardHeaderLeft}>
             <View style={styles.iconCircle}>
@@ -838,10 +1204,16 @@ export default function StatsScreen() {
                   undefined,
                   trendGranularity === 'day'
                     ? t('stats.trendGranularityDay')
-                    : t('stats.trendGranularityWeek')
+                    : trendGranularity === 'month'
+                      ? t('stats.trendGranularityMonth')
+                      : t('stats.trendGranularityWeek')
                 )}
               </Text>
-              <View style={styles.trendBars}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.trendBars}
+              >
                 {trendPoints.map((point, index) => {
                   const rawValue = Number(point[trendMetric]);
                   const heightPercent = Math.max(0.1, rawValue / activeTrend.max);
@@ -850,13 +1222,13 @@ export default function StatsScreen() {
                     rawValue > prevValue
                       ? colors.accentGreen
                       : rawValue < prevValue
-                        ? '#ef4444'
+                        ? colors.accent
                         : colors.primary;
                   const isSelected = selectedTrendPoint?.point.key === point.key;
                   return (
                     <TouchableOpacity
                       key={`${trendMetric}-${point.key}`}
-                      style={styles.trendBarCol}
+                      style={[styles.trendBarCol, trendPoints.length > 14 ? styles.trendBarColDense : null]}
                       activeOpacity={0.85}
                       onPress={() => {
                         Haptics.selectionAsync();
@@ -877,13 +1249,21 @@ export default function StatsScreen() {
                           ]}
                         />
                       </View>
-                      <Text numberOfLines={1} style={[styles.trendBarLabel, isSelected ? styles.trendBarLabelSelected : null]}>
-                        {point.label}
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.trendBarLabel, isSelected ? styles.trendBarLabelSelected : null]}
+                      >
+                        {index === 0 ||
+                        index === trendPoints.length - 1 ||
+                        isSelected ||
+                        index % trendLabelStride === 0
+                          ? point.label
+                          : ''}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </ScrollView>
               <Text style={styles.trendHintText}>{t('stats.trendTapHint')}</Text>
             </View>
 
@@ -939,14 +1319,16 @@ export default function StatsScreen() {
             </Text>
           </View>
         )}
-      </GlassCard>
+        </GlassCard>
+      </StaggerReveal>
 
         {/* PB */}
-        <GlassCard style={styles.card} elevated={false}>
+        <StaggerReveal delay={320}>
+          <GlassCard style={styles.card} elevated={false} tone="amber">
           <View style={styles.cardHeaderRow}>
             <View style={styles.cardHeaderLeft}>
               <View style={styles.iconCircle}>
-                <Trophy size={18} color="#facc15" />
+                <Trophy size={18} color={colors.warning} />
               </View>
               <View>
                 <TouchableOpacity
@@ -1063,10 +1445,12 @@ export default function StatsScreen() {
               </TouchableOpacity>
             ))
           )}
-        </GlassCard>
+          </GlassCard>
+        </StaggerReveal>
 
         {/* ÖVNINGS-PROGRESS LINK */}
-        <GlassCard style={styles.card} elevated={false}>
+        <StaggerReveal delay={360}>
+          <GlassCard style={styles.card} elevated={false} tone="green">
           <View style={styles.cardHeaderRow}>
             <View style={styles.cardHeaderLeft}>
               <View style={styles.iconCircle}>
@@ -1163,194 +1547,11 @@ export default function StatsScreen() {
           >
             <Text style={styles.pbEmptyButtonText}>{t('stats.progressShowAll')}</Text>
           </TouchableOpacity>
-        </GlassCard>
+          </GlassCard>
+        </StaggerReveal>
 
         </ScrollView>
       </View>
-      <Modal
-        visible={showCustomPicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowCustomPicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <TouchableOpacity
-              style={styles.modalClose}
-              onPress={() => {
-                setShowCustomPicker(false);
-              }}
-              accessibilityLabel={t('stats.closeDatePicker')}
-              accessibilityRole="button"
-            >
-              <X size={16} color={colors.textSoft} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>{t('stats.datePickerTitle')}</Text>
-            <View style={styles.modalPresetRow}>
-              <TouchableOpacity
-                style={styles.modalPresetButton}
-                onPress={() => {
-                  const end = new Date(todayOnly);
-                  const start = new Date(todayOnly);
-                  start.setDate(start.getDate() - 6);
-                  setCustomStart(start);
-                  setCustomEnd(end);
-                  setPeriod('custom');
-                  setActivePicker(null);
-                }}
-              >
-                <Text style={styles.modalPresetText}>{t('stats.preset7d')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalPresetButton}
-                onPress={() => {
-                  const end = new Date(todayOnly);
-                  const start = new Date(todayOnly);
-                  start.setDate(start.getDate() - 29);
-                  setCustomStart(start);
-                  setCustomEnd(end);
-                  setPeriod('custom');
-                  setActivePicker(null);
-                }}
-              >
-                <Text style={styles.modalPresetText}>{t('stats.preset30d')}</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalPresetRow}>
-              <TouchableOpacity
-                style={styles.modalPresetButton}
-                onPress={() => {
-                  const start = new Date(todayOnly.getFullYear(), todayOnly.getMonth(), 1);
-                  const end = new Date(todayOnly);
-                  setCustomStart(start);
-                  setCustomEnd(end);
-                  setPeriod('custom');
-                  setActivePicker(null);
-                }}
-              >
-                <Text style={styles.modalPresetText}>{t('stats.presetMonth')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalPresetButton}
-                onPress={() => {
-                  setCustomStart(null);
-                  setCustomEnd(null);
-                  setPeriod('all');
-                  setActivePicker(null);
-                  setShowCustomPicker(false);
-                }}
-              >
-                <Text style={styles.modalPresetText}>{t('stats.presetClear')}</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalRow}>
-              <Text style={styles.modalLabel}>{t('stats.startLabel')}</Text>
-              <TouchableOpacity
-                style={styles.modalDate}
-                onPress={() => {
-                  setActivePicker('start');
-                  setShowCustomPicker(true);
-                }}
-                accessibilityLabel={t('stats.pickStart')}
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalDateText}>
-                  {customStart ? formatDate(customStart) : t('stats.startPlaceholder')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalRow}>
-              <Text style={styles.modalLabel}>{t('stats.endLabel')}</Text>
-              <TouchableOpacity
-                style={styles.modalDate}
-                onPress={() => {
-                  setActivePicker('end');
-                  setShowCustomPicker(true);
-                }}
-                accessibilityLabel={t('stats.pickEnd')}
-                accessibilityRole="button"
-              >
-                <Text style={styles.modalDateText}>
-                  {customEnd ? formatDate(customEnd) : t('stats.endPlaceholder')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={() => {
-                  const start = customStart || todayOnly;
-                  const end = customEnd || todayOnly;
-                  const orderedStart = start <= end ? start : end;
-                  const orderedEnd = end >= start ? end : start;
-                  setCustomStart(orderedStart);
-                  setCustomEnd(orderedEnd);
-                  setPeriod('custom');
-                  setShowCustomPicker(false);
-                  setActivePicker(null);
-                }}
-              >
-                <Text style={styles.modalButtonText}>{t('stats.confirm')}</Text>
-              </TouchableOpacity>
-            </View>
-          {activePicker && (
-            <View style={styles.popover}>
-              <Calendar
-                current={
-                  activePicker === 'start'
-                    ? formatDate(customStart || todayOnly)
-                    : formatDate(customEnd || todayOnly)
-                }
-                onDayPress={(day: CalendarDay) => {
-                  const picked = parseISODate(day.dateString);
-                  if (!picked) return;
-                  if (activePicker === 'start') {
-                    setCustomStart(picked);
-                    if (!customEnd || picked > customEnd) {
-                      setCustomEnd(picked);
-                    }
-                  } else if (activePicker === 'end') {
-                    setCustomEnd(picked);
-                    if (!customStart || picked < customStart) {
-                      setCustomStart(picked);
-                    }
-                  }
-                  setPeriod('custom');
-                }}
-                markedDates={{
-                  ...(customStart
-                    ? {
-                        [formatDate(customStart)]: {
-                          selected: true,
-                          selectedColor: colors.primary,
-                          selectedTextColor: '#0b1120',
-                        },
-                      }
-                    : {}),
-                  ...(customEnd
-                    ? {
-                        [formatDate(customEnd)]: {
-                          selected: true,
-                          selectedColor: colors.accentGreen,
-                          selectedTextColor: '#0b1120',
-                        },
-                      }
-                    : {}),
-                }}
-                theme={{
-                  backgroundColor: '#0b1220',
-                  calendarBackground: '#0b1220',
-                  monthTextColor: colors.textMain,
-                  dayTextColor: colors.textMain,
-                  textDisabledColor: '#4b5563',
-                  arrowColor: colors.textMain,
-                }}
-              />
-            </View>
-          )}
-        </View>
-      </View>
-    </Modal>
     </SafeAreaView>
   );
 }
@@ -1358,7 +1559,7 @@ export default function StatsScreen() {
 type CalendarDay = { dateString: string };
 const STATS_PREFS_KEY = 'stats-screen-prefs-v1';
 type StatsScreenPrefs = {
-  period: '7d' | '30d' | 'all' | 'custom';
+  period: StatsPeriod;
   trendMetric: TrendMetric;
   topSort: 'sessions' | 'volume' | 'weight';
   customStart: string | null;
@@ -1376,7 +1577,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: spacing.lg + 2,
-    paddingTop: spacing.md + 2,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xl,
   },
   title: {
@@ -1390,7 +1591,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   card: {
-    marginTop: spacing.md,
+    marginTop: layout.sectionGapLg,
+    borderRadius: 18,
+  },
+  filterPanel: {
+    borderRadius: 16,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1411,7 +1616,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   cardTitle: {
     ...typography.title,
@@ -1424,11 +1629,11 @@ const styles = StyleSheet.create({
   },
   aiRefreshButton: {
     borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 999,
+    borderColor: colors.cardBorder,
+    borderRadius: radii.button,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
   },
   aiRefreshText: {
     ...typography.micro,
@@ -1471,7 +1676,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   statLabel: {
     ...typography.micro,
@@ -1479,7 +1684,6 @@ const styles = StyleSheet.create({
   },
   statValue: {
     ...typography.title,
-    fontSize: 16,
     color: colors.textMain,
     marginTop: 2,
   },
@@ -1508,7 +1712,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   monthRow: {
     flexDirection: 'row',
@@ -1521,7 +1725,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
+  },
+  weeklyKpiRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  weeklyKpiItem: {
+    flex: 1,
+    backgroundColor: colors.backgroundSoft,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
 
   // Streak
@@ -1538,7 +1756,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   streakText: {
     ...typography.bodyBold,
@@ -1566,7 +1784,7 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     ...typography.bodyBold,
-    color: '#0b1120',
+    color: colors.background,
   },
   emptyText: {
     ...typography.caption,
@@ -1574,46 +1792,123 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    marginBottom: 6,
+  },
+  customInlineWrap: {
+    marginTop: 2,
     marginBottom: 8,
   },
   customRangeText: {
     ...typography.micro,
+    color: colors.primaryBright,
+    marginTop: 0,
+    marginBottom: 4,
+  },
+  customInlineHint: {
+    ...typography.micro,
     color: colors.textSoft,
-    marginTop: -4,
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  customStepRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  customStepButton: {
+    flex: 1,
+    minHeight: 34,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  customStepButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  customStepText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  customStepTextActive: {
+    color: colors.textMain,
+  },
+  customDateRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  customDateBox: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  customDateBoxActive: {
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+  },
+  customDateLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  customDateLabelActive: {
+    color: colors.textMain,
+  },
+  customDateValue: {
+    ...typography.caption,
+    color: colors.textMain,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  customInlineCalendar: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
+    padding: 6,
   },
   filterActionsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginBottom: 4,
+    marginBottom: 0,
   },
   filterResetButton: {
     borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 999,
+    borderColor: colors.cardBorder,
+    borderRadius: radii.button,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: colors.backgroundSoft,
+    backgroundColor: colors.surface,
   },
   filterResetText: {
     ...typography.micro,
-    color: colors.textSoft,
+    color: colors.textMain,
     fontWeight: '700',
   },
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 9,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
     minWidth: 70,
     alignItems: 'center',
   },
   filterChipActive: {
     borderColor: colors.primary,
-    backgroundColor: '#120a2a',
+    backgroundColor: colors.primarySoft,
   },
   filterText: {
     ...typography.caption,
@@ -1621,7 +1916,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   filterTextActive: {
-    color: '#bbf7d0',
+    color: colors.textMain,
   },
   pbRow: {
     flexDirection: 'row',
@@ -1629,12 +1924,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#1f2937',
+    borderTopColor: colors.cardBorder,
   },
   pbName: {
     ...typography.bodyBold,
     color: colors.textMain,
-    fontSize: 13,
   },
   pbRight: {
     alignItems: 'flex-end',
@@ -1644,7 +1938,6 @@ const styles = StyleSheet.create({
   pbWeight: {
     ...typography.bodyBold,
     color: colors.accentGreen,
-    fontSize: 13,
   },
   pbDelta: {
     ...typography.micro,
@@ -1689,12 +1982,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   pbEmptyButtonText: {
+    ...typography.caption,
     color: colors.textMain,
     fontWeight: '700',
-    fontSize: 12,
   },
   pbOpenAllButton: {
     marginTop: 8,
@@ -1703,12 +1996,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   primaryButton: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primaryBright,
   },
   secondaryButton: {
-    backgroundColor: colors.backgroundSoft,
-    borderColor: '#334155',
+    backgroundColor: colors.surface,
+    borderColor: colors.cardBorder,
   },
   progressInfoRow: {
     marginTop: 6,
@@ -1742,7 +2035,7 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1f2937',
+    borderBottomColor: colors.cardBorder,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -1767,13 +2060,13 @@ const styles = StyleSheet.create({
   trendMetricChip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   trendMetricChipActive: {
-    borderColor: colors.primary,
+    borderColor: colors.primaryBright,
     backgroundColor: colors.primarySoft,
   },
   trendMetricChipText: {
@@ -1796,11 +2089,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     alignItems: 'flex-end',
+    paddingRight: 4,
   },
   trendBarCol: {
     flex: 1,
     alignItems: 'center',
     gap: 4,
+    minWidth: 26,
+  },
+  trendBarColDense: {
+    flex: 0,
+    width: 20,
+    minWidth: 20,
   },
   trendBarBg: {
     width: '100%',
@@ -1808,7 +2108,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     overflow: 'hidden',
     justifyContent: 'flex-end',
   },
@@ -1841,7 +2141,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSoft,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 2,
@@ -1849,7 +2149,6 @@ const styles = StyleSheet.create({
   trendSelectedValue: {
     ...typography.title,
     color: colors.textMain,
-    fontSize: 18,
   },
   trendSummaryRow: {
     flexDirection: 'row',
@@ -1863,7 +2162,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   trendDeltaRow: {
     marginTop: 2,
@@ -1877,7 +2176,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
     backgroundColor: colors.backgroundSoft,
   },
@@ -1888,13 +2187,13 @@ const styles = StyleSheet.create({
   topSortChip: {
     paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   topSortChipActive: {
-    borderColor: colors.primary,
+    borderColor: colors.primaryBright,
     backgroundColor: colors.primarySoft,
   },
   topSortText: {
@@ -1911,7 +2210,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#1f2937',
+    borderTopColor: colors.cardBorder,
   },
   topList: {
     marginTop: 10,
@@ -1921,7 +2220,7 @@ const styles = StyleSheet.create({
     color: colors.textMain,
   },
   topExerciseMeta: {
-    ...typography.micro,
+    ...typography.caption,
     color: colors.textSoft,
   },
   topExerciseBadge: {
@@ -1930,7 +2229,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -1961,8 +2260,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
   },
   topTagText: {
     ...typography.micro,
@@ -2024,9 +2323,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   tagText: {
     ...typography.micro,
@@ -2038,7 +2337,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     overflow: 'hidden',
     width: 120,
   },
@@ -2050,126 +2349,5 @@ const styles = StyleSheet.create({
   coachText: {
     ...typography.bodyBold,
     color: colors.textMain,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: colors.backgroundSoft,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    paddingHorizontal: 14,
-    paddingVertical: 18,
-  },
-  modalTitle: {
-    ...typography.title,
-    color: colors.textMain,
-    marginBottom: 10,
-    marginTop: 4,
-  },
-  modalPresetRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 8,
-  },
-  modalPresetButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0f172a',
-  },
-  modalPresetText: {
-    ...typography.micro,
-    color: colors.textMain,
-    fontWeight: '700',
-  },
-  modalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalLabel: {
-    ...typography.caption,
-    color: colors.textSoft,
-  },
-  modalDate: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundSoft,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  modalDateText: {
-    ...typography.bodyBold,
-    color: colors.textMain,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginTop: 10,
-  },
-  modalButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  modalButtonPrimary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  modalButtonSecondary: {
-    backgroundColor: colors.backgroundSoft,
-    borderColor: '#1f2937',
-  },
-  modalButtonText: {
-    color: '#0b1120',
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  statusIconCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.backgroundSoft,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  popover: {
-    marginTop: 10,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundSoft,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    padding: 8,
-  },
-  modalClose: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0f172a',
-    borderWidth: 1,
-    borderColor: '#1f2937',
   },
 });

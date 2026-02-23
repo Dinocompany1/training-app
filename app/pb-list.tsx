@@ -3,15 +3,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../components/ui/GlassCard';
-import { colors, gradients, typography } from '../constants/theme';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { colors, gradients, radii, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
@@ -22,7 +23,7 @@ export default function PBListScreen() {
   const { t, lang } = useTranslation();
   const router = useRouter();
   const [sort, setSort] = useState<'date' | 'value' | 'name'>('date');
-  const [category, setCategory] = useState<string>('alla');
+  const [category, setCategory] = useState<string>('__all__');
 
   type PBEvent = { name: string; weight: number; date: string; muscle?: string; delta?: number };
 
@@ -59,7 +60,7 @@ export default function PBListScreen() {
     const totalImprovement = events.reduce((sum, ev) => sum + (ev.delta ?? 0), 0);
 
     const categories = Array.from(
-      new Set(events.map((e) => e.muscle || 'Övrigt'))
+      new Set(events.map((e) => e.muscle || t('exercises.groups.Övrigt')))
     );
 
     return {
@@ -67,10 +68,12 @@ export default function PBListScreen() {
       summary: { activePBs, latest, totalImprovement },
       categories,
     };
-  }, [workouts]);
+  }, [t, workouts]);
 
   const filtered = pbs.filter((pb) =>
-    category === 'alla' ? true : (pb.muscle || 'Övrigt') === category
+    category === '__all__'
+      ? true
+      : (pb.muscle || t('exercises.groups.Övrigt')) === category
   );
 
   const sorted = [...filtered].sort((a, b) => {
@@ -90,10 +93,7 @@ export default function PBListScreen() {
         <View style={styles.backRow}>
           <BackPill onPress={() => router.back()} />
         </View>
-        <Text style={styles.title}>{t('stats.pbTitle')}</Text>
-        <Text style={styles.subtitle}>
-          {t('stats.pbSubtitle')}
-        </Text>
+        <ScreenHeader title={t('stats.pbTitle')} subtitle={t('stats.pbSubtitle')} tone="amber" />
 
         <GlassCard style={styles.summaryCard} elevated={false}>
           <View style={styles.summaryRow}>
@@ -139,10 +139,10 @@ export default function PBListScreen() {
 
         <View style={styles.filterRow}>
           <TouchableOpacity
-            style={[styles.sortChip, category === 'alla' && styles.sortChipActive]}
-            onPress={() => setCategory('alla')}
+            style={[styles.sortChip, category === '__all__' && styles.sortChipActive]}
+            onPress={() => setCategory('__all__')}
           >
-            <Text style={[styles.sortText, category === 'alla' && styles.sortTextActive]}>
+            <Text style={[styles.sortText, category === '__all__' && styles.sortTextActive]}>
               {t('stats.filters.all')}
             </Text>
           </TouchableOpacity>
@@ -177,9 +177,9 @@ export default function PBListScreen() {
                   })
                 }
                 accessibilityRole="button"
-                accessibilityLabel={`Öppna ${pb.name}`}
+                accessibilityLabel={t('stats.pbOpenA11y', undefined, pb.name)}
               >
-                <View style={styles.row}>
+                <View style={[styles.row, idx > 0 ? styles.rowWithDivider : null]}>
                   <View style={{ flex: 1.4 }}>
                     <Text style={styles.pbName}>{pb.name}</Text>
                     {pb.delta != null ? (
@@ -239,12 +239,12 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    borderColor: '#334155',
+    backgroundColor: '#0b1220',
   },
   summaryLabel: {
     ...typography.micro,
-    color: colors.textSoft,
+    color: colors.textMuted,
   },
   summaryValue: {
     ...typography.bodyBold,
@@ -259,7 +259,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 4,
+    minHeight: 56,
+    paddingVertical: 10,
+  },
+  rowWithDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
   },
   pbName: {
     ...typography.bodyBold,
@@ -282,14 +287,14 @@ const styles = StyleSheet.create({
   sortChip: {
     paddingHorizontal: 11,
     paddingVertical: 7,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
+    borderColor: '#334155',
+    backgroundColor: '#0f172a',
   },
   sortChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#120a2a',
+    borderColor: '#60a5fa',
+    backgroundColor: '#1e3a8a',
   },
   sortText: {
     ...typography.micro,
@@ -297,6 +302,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sortTextActive: {
-    color: colors.primary,
+    color: '#dbeafe',
   },
 });

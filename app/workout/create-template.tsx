@@ -4,22 +4,24 @@ import { useRouter } from 'expo-router';
 import { ListChecks, Palette, Trash2 } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import BackPill from '../../components/ui/BackPill';
 import { colors, gradients } from '../../constants/theme';
 import { Template, useWorkouts } from '../../context/WorkoutsContext';
 import { toast } from '../../utils/toast';
 import { useTranslation } from '../../context/TranslationContext';
+import { createId } from '../../utils/id';
 
 const WORKOUT_COLORS = [
   { label: 'Blå (Push)', value: '#3b82f6' },
@@ -52,7 +54,7 @@ export default function CreateTemplateScreen() {
   );
   const [exercises, setExercises] = useState<TemplateExerciseInput[]>([
     {
-      id: Date.now().toString(),
+      id: createId('ct-ex'),
       name: '',
       sets: '3',
       reps: '8–10',
@@ -65,7 +67,7 @@ export default function CreateTemplateScreen() {
     setExercises((prev) => [
       ...prev,
       {
-        id: Date.now().toString() + Math.random().toString(36).slice(2),
+        id: createId('ct-ex'),
         name: '',
         sets: '3',
         reps: '8–10',
@@ -91,7 +93,7 @@ export default function CreateTemplateScreen() {
   const handleSaveTemplate = () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      Alert.alert(t('common.error'), t('templateBuilder.nameError'));
+      toast(t('templateBuilder.nameError'));
       return;
     }
 
@@ -106,15 +108,12 @@ export default function CreateTemplateScreen() {
       }));
 
     if (cleanedExercises.length === 0) {
-      Alert.alert(
-        t('common.error'),
-        t('templateBuilder.exerciseError')
-      );
+      toast(t('templateBuilder.exerciseError'));
       return;
     }
 
     const newTemplate: Template = {
-      id: Date.now().toString(),
+      id: createId('tpl'),
       name: trimmedName,
       description: description.trim(),
       color: selectedColor,
@@ -124,12 +123,7 @@ export default function CreateTemplateScreen() {
     addTemplate(newTemplate);
 
     toast(t('templateBuilder.savedToast'));
-    Alert.alert(t('templateBuilder.savedTitle'), t('templateBuilder.savedBody'), [
-      {
-        text: t('common.ok'),
-        onPress: () => router.back(),
-      },
-    ]);
+    router.back();
   };
 
   return (
@@ -147,17 +141,21 @@ export default function CreateTemplateScreen() {
             contentContainerStyle={styles.container}
             showsVerticalScrollIndicator={false}
           >
+            <View style={styles.backRow}>
+              <BackPill onPress={() => router.back()} />
+            </View>
             {/* HEADER */}
             <View style={styles.headerRow}>
               <View style={styles.iconCircle}>
                 <ListChecks color="#e0f2fe" size={24} />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>{t('templateBuilder.title')}</Text>
-                <Text style={styles.subtitle}>
-                  {t('templateBuilder.subtitle')}
-                </Text>
-              </View>
+              <ScreenHeader
+                title={t('templateBuilder.title')}
+                subtitle={t('templateBuilder.subtitle')}
+                compact
+                tone="blue"
+                style={styles.headerTitle}
+              />
             </View>
 
             {/* BASINFO */}
@@ -257,7 +255,7 @@ export default function CreateTemplateScreen() {
                       <Text style={styles.labelSmall}>{t('exerciseDetail.sets')}</Text>
                       <TextInput
                         style={styles.inlineInput}
-                        placeholder="3"
+                        placeholder={t('templateBuilder.setsPlaceholder')}
                         placeholderTextColor={colors.textSoft}
                         keyboardType="number-pad"
                         value={ex.sets}
@@ -271,7 +269,7 @@ export default function CreateTemplateScreen() {
                       <Text style={styles.labelSmall}>{t('exerciseDetail.reps')}</Text>
                       <TextInput
                         style={styles.inlineInput}
-                        placeholder="8–10"
+                        placeholder={t('templateBuilder.repsPlaceholder')}
                         placeholderTextColor={colors.textSoft}
                         value={ex.reps}
                         onChangeText={(t) =>
@@ -332,12 +330,19 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 24,
   },
+  backRow: {
+    paddingBottom: 6,
+  },
 
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     marginBottom: 12,
+  },
+  headerTitle: {
+    flex: 1,
+    marginBottom: 0,
   },
   iconCircle: {
     width: 44,

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dumbbell } from 'lucide-react-native';
 import { StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
-import { colors, typography } from '../../constants/theme';
+import { colors, radii, typography } from '../../constants/theme';
 import { useTranslation } from '../../context/TranslationContext';
 import { translateExerciseGroup, translateExerciseName } from '../../utils/exerciseTranslations';
 
@@ -140,10 +140,10 @@ export default function ExerciseLibrary({
 const styles = StyleSheet.create({
   listBox: {
     marginTop: 10,
-    backgroundColor: '#050b16',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   sectionLabel: {
@@ -164,11 +164,11 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 999,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.backgroundSoft,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   groupTitle: {
     color: colors.textMain,
@@ -180,10 +180,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   groupListCard: {
-    borderRadius: 12,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
-    backgroundColor: '#020617',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
     overflow: 'hidden',
   },
   exerciseRow: {
@@ -195,10 +195,10 @@ const styles = StyleSheet.create({
   },
   exerciseRowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#111827',
+    borderBottomColor: colors.cardBorder,
   },
   exerciseRowActive: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.primarySoft,
   },
   exerciseNameWrapper: {
     flex: 1,
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     color: colors.textMain,
   },
   exerciseNameActive: {
-    color: '#bbf7d0',
+    color: colors.textMain,
     fontWeight: '700',
   },
   exerciseDot: {
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   },
   exerciseTag: {
     ...typography.micro,
-    color: '#bbf7d0',
+    color: colors.primaryBright,
   },
   muscleRow: {
     flexDirection: 'row',

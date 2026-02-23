@@ -1,6 +1,7 @@
 import React from 'react';
-import { Text, View, StyleSheet, ViewStyle, TouchableOpacity } from 'react-native';
-import { colors } from '../../constants/theme';
+import * as Haptics from 'expo-haptics';
+import { Animated, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { colors, radii } from '../../constants/theme';
 
 type Props = {
   label: string;
@@ -10,6 +11,18 @@ type Props = {
 };
 
 export default function BadgePill({ label, tone = 'neutral', style, onPress }: Props) {
+  const scale = React.useRef(new Animated.Value(1)).current;
+  const interactive = Boolean(onPress);
+
+  const animateTo = (value: number) => {
+    Animated.spring(scale, {
+      toValue: value,
+      friction: 7,
+      tension: 220,
+      useNativeDriver: true,
+    }).start();
+  };
+
   const toneStyle =
     tone === 'primary'
       ? styles.primary
@@ -23,19 +36,34 @@ export default function BadgePill({ label, tone = 'neutral', style, onPress }: P
       ? styles.successText
       : styles.neutralText;
 
-  const Comp = onPress ? TouchableOpacity : View;
+  if (!interactive) {
+    return (
+      <View style={[styles.pill, toneStyle, style]}>
+        <Text style={[styles.text, textStyle]} accessible={false}>
+          {label}
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <Comp
-      style={[styles.pill, toneStyle, style]}
-      onPress={onPress}
-      activeOpacity={0.9}
-      accessibilityLabel={label}
-      accessibilityRole={onPress ? 'button' : undefined}
-    >
-      <Text style={[styles.text, textStyle]} accessible={false}>
-        {label}
-      </Text>
-    </Comp>
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <Pressable
+        style={({ pressed }) => [styles.pill, toneStyle, pressed ? styles.pressed : null, style]}
+        onPressIn={() => {
+          animateTo(0.98);
+          Haptics.selectionAsync();
+        }}
+        onPressOut={() => animateTo(1)}
+        onPress={onPress}
+        accessibilityLabel={label}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.text, textStyle]} accessible={false}>
+          {label}
+        </Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -44,7 +72,7 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 999,
+    borderRadius: radii.pill,
     borderWidth: 1,
   },
   text: {
@@ -71,5 +99,8 @@ const styles = StyleSheet.create({
   },
   successText: {
     color: '#bbf7d0',
+  },
+  pressed: {
+    opacity: 0.92,
   },
 });

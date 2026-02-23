@@ -6,30 +6,35 @@ import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   Alert,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import EmptyState from '../../components/ui/EmptyState';
+import AppButton from '../../components/ui/AppButton';
 import ExerciseDetailCard from '../../components/ui/ExerciseDetailCard';
 import ExerciseLibrary from '../../components/ui/ExerciseLibrary';
 import GlassCard from '../../components/ui/GlassCard';
-import NeonButton from '../../components/ui/NeonButton';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import StaggerReveal from '../../components/ui/StaggerReveal';
 import { EXERCISE_LIBRARY } from '../../constants/exerciseLibrary';
-import { colors, gradients, typography } from '../../constants/theme';
+import { colors, gradients, inputs, layout, radii, spacing, typography } from '../../constants/theme';
 import { Template, useWorkouts } from '../../context/WorkoutsContext';
 import {
   clearOngoingQuickWorkout,
   loadOngoingQuickWorkout,
   saveOngoingQuickWorkout,
+  type OngoingQuickWorkoutSnapshot,
 } from '../../utils/ongoingQuickWorkout';
 import { toast } from '../../utils/toast';
 import { useTranslation } from '../../context/TranslationContext';
 import BackPill from '../../components/ui/BackPill';
+import { createId } from '../../utils/id';
+import { sortWorkoutsByRecencyDesc } from '../../utils/workoutRecency';
 
 type QuickSet = {
   id: string;
@@ -45,6 +50,11 @@ type QuickExercise = {
   sets: QuickSet[];
 };
 
+type ExerciseSuggestion = {
+  muscleGroup?: string;
+  sets: { reps: string; weight: string }[];
+};
+
 const MUSCLE_GROUPS = [
   'Bröst',
   'Rygg',
@@ -55,12 +65,17 @@ const MUSCLE_GROUPS = [
 ];
 const COLOR_OPTIONS = ['#a855f7', '#3b82f6', '#22c55e', '#f97316', '#e11d48'];
 
-// Enkel id-generator (ingen uuid / crypto)
-const generateId = () =>
-  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const generateId = () => createId('qw');
 
 const sanitizeNumeric = (value: string) => value.replace(/[^0-9.,-]/g, '').replace(',', '.');
 const sanitizeReps = (value: string) => value.replace(/[^0-9xX/–-]/g, '').slice(0, 6);
+const normalizeExerciseKey = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 const parseWeightInput = (value: string) => {
   if (!value) return 0;
   const normalized = value.replace(',', '.');
@@ -174,15 +189,17 @@ export default function QuickWorkoutScreen() {
     resume?: string;
     resumeSnapshot?: string;
   }>();
+  const hasResumeFlag = params.resume === '1' || params.resume === 'true';
 
   const parsedResume = useMemo(() => {
+    if (!hasResumeFlag) return null;
     if (!params.resumeSnapshot || typeof params.resumeSnapshot !== 'string') return null;
     try {
       return JSON.parse(decodeURIComponent(params.resumeSnapshot));
     } catch {
       return null;
     }
-  }, [params.resumeSnapshot]);
+  }, [hasResumeFlag, params.resumeSnapshot]);
 
   const resolvedPlannedWorkout = useMemo(() => {
     if (!params.plannedId) return undefined;
@@ -227,6 +244,12 @@ const defaultTitle =
   const [notes, setNotes] = useState('');
   const [notesError, setNotesError] = useState('');
   const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  const [finishModalVisible, setFinishModalVisible] = useState(false);
+  const [finishSummary, setFinishSummary] = useState<{
+    exercises: number;
+    sets: number;
+    minutes: number;
+  } | null>(null);
   const [templateName, setTemplateName] = useState<string>(defaultTitle);
   const templateColors = ['#a855f7', '#22c55e', '#3b82f6', '#f97316', '#ec4899'];
 
@@ -240,6 +263,7 @@ const defaultTitle =
     parsedResume?.showDetails ?? !!params.resume
   );
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [focusTargetKey, setFocusTargetKey] = useState<string | null>(null);
   const [lastWorkoutExercises, setLastWorkoutExercises] = useState<
     {
       id: string;
@@ -252,9 +276,79 @@ const defaultTitle =
     }[]
   >([]);
 
+  const completedWorkouts = useMemo(
+    () => sortWorkoutsByRecencyDesc((workouts || []).filter((w) => w.isCompleted)),
+    [workouts]
+  );
+  const latestCompletedWorkout = completedWorkouts[0];
+
+  const suggestionsByExercise = useMemo(() => {
+    const byName = new Map<string, ExerciseSuggestion>();
+    completedWorkouts.forEach((workout) => {
+      workout.exercises?.forEach((ex) => {
+        const key = normalizeExerciseKey(ex.name);
+        if (!key || byName.has(key)) return;
+
+        const performedSets =
+          ex.performedSets && ex.performedSets.length > 0
+            ? ex.performedSets.map((set) => ({
+                reps: set.reps?.trim() || ex.reps || '10',
+                weight:
+                  set.weight != null && Number.isFinite(Number(set.weight))
+                    ? String(set.weight)
+                    : '',
+              }))
+            : Array.from({ length: Math.max(1, ex.sets || 1) }).map(() => ({
+                reps: ex.reps || '10',
+                weight:
+                  ex.weight != null && Number.isFinite(Number(ex.weight))
+                    ? String(ex.weight)
+                    : '',
+              }));
+
+        byName.set(key, {
+          muscleGroup: ex.muscleGroup,
+          sets: performedSets.length > 0 ? performedSets : [{ reps: '10', weight: '' }],
+        });
+      });
+    });
+    return byName;
+  }, [completedWorkouts]);
+
+  const getSuggestionForName = useCallback(
+    (exerciseName: string) => {
+      const normalized = normalizeExerciseKey(exerciseName);
+      if (!normalized) return undefined;
+      const exact = suggestionsByExercise.get(normalized);
+      if (exact) return exact;
+
+      // fallback: tolerate minor naming variations such as extra words/suffixes
+      for (const [key, suggestion] of suggestionsByExercise.entries()) {
+        if (key.includes(normalized) || normalized.includes(key)) {
+          return suggestion;
+        }
+      }
+      return undefined;
+    },
+    [suggestionsByExercise]
+  );
+
+  const recentExercises = useMemo(() => {
+    if (!latestCompletedWorkout?.exercises?.length) return [];
+    const seen = new Set<string>();
+    return latestCompletedWorkout.exercises
+      .filter((ex) => {
+        const key = normalizeExerciseKey(ex.name);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((ex) => ({ name: ex.name, muscleGroup: ex.muscleGroup }));
+  }, [latestCompletedWorkout]);
+
   // Spara pågående pass för återupptagning
   useEffect(() => {
-    const snapshot = {
+    const snapshot: OngoingQuickWorkoutSnapshot = {
       title,
       color,
       notes,
@@ -270,7 +364,8 @@ const defaultTitle =
   // Ladda ev. pågående sparat pass
   useEffect(() => {
     const loadOngoing = async () => {
-      if (!params.resume && (params.templateId || params.plannedId)) return; // prioriterar inkommande param om inte resume-flaggan finns
+      // Återuppta endast när användaren uttryckligen valt resume-flödet.
+      if (!hasResumeFlag) return;
       const parsed = await loadOngoingQuickWorkout();
       if (!parsed?.exercises) return;
       if (parsed.startTimestamp) setStartTimestamp(parsed.startTimestamp);
@@ -281,7 +376,46 @@ const defaultTitle =
       setShowDetails(parsed.showDetails ?? true);
     };
     loadOngoing();
-  }, [params.plannedId, params.templateId, params.resume, defaultTitle, defaultColor]);
+  }, [hasResumeFlag, defaultTitle, defaultColor]);
+
+  // Hård reset för nytt pass (utan resume) så gammalt state aldrig läcker in.
+  useEffect(() => {
+    if (hasResumeFlag) return;
+    setStartTimestamp(Date.now());
+    setTitle(defaultTitle);
+    setColor(defaultColor);
+    setTemplateColor(defaultColor);
+    setNotes('');
+    setNotesError('');
+    setInputError('');
+    setShowDetails(false);
+    setShowExerciseList(false);
+    setShowCustomInput(false);
+    setShowTemplatePicker(false);
+    setShowColorPicker(false);
+    setSelectedTemplateId(null);
+    setCustomName('');
+    setFocusTargetKey(null);
+    setLastWorkoutExercises([]);
+    setExercises(
+      buildExercisesFromTemplate(
+        {
+          templateId:
+            typeof params.templateId === 'string' ? params.templateId : undefined,
+        },
+        templates,
+        resolvedPlannedWorkout?.exercises as any
+      )
+    );
+  }, [
+    hasResumeFlag,
+    defaultTitle,
+    defaultColor,
+    params.templateId,
+    params.plannedId,
+    templates,
+    resolvedPlannedWorkout,
+  ]);
 
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({ ...g, exercises: [...g.exercises] }));
@@ -317,11 +451,21 @@ const defaultTitle =
     if (t.color) setColor(t.color);
   };
 
-  const { totalSets } = useMemo(() => {
+  const { totalSets, completedSets } = useMemo(() => {
     let total = 0;
+    let completed = 0;
     for (const ex of exercises) total += ex.sets.length;
-    return { totalSets: total };
+    for (const ex of exercises) {
+      for (const set of ex.sets) {
+        const hasReps = String(set.reps || '').trim().length > 0;
+        const parsed = parseWeightInput(String(set.weight || ''));
+        const hasWeight = Number.isFinite(parsed) && parsed > 0;
+        if (hasReps || hasWeight || set.done) completed += 1;
+      }
+    }
+    return { totalSets: total, completedSets: completed };
   }, [exercises]);
+  const progressPct = totalSets > 0 ? Math.max(4, Math.round((completedSets / totalSets) * 100)) : 4;
 
   const updateSetField = (
     exerciseId: string,
@@ -333,7 +477,7 @@ const defaultTitle =
     if (field === 'weight') {
       const parsed = parseWeightInput(clean);
       if (Number.isNaN(parsed)) {
-        setInputError('Vikt måste vara siffror (använd punkt eller komma).');
+        setInputError(t('quick.weightInvalid'));
       } else {
         setInputError('');
       }
@@ -358,19 +502,36 @@ const defaultTitle =
         id: generateId(),
         name: t('quick.newExercise', undefined, prev.length + 1),
         muscleGroup: t('exercises.groups.Övrigt'),
-        sets: [{ id: generateId(), reps: '10', weight: '' }],
+        sets: [{ id: generateId(), reps: '10', weight: '', done: false }],
       },
     ]);
   };
 
+  const buildSuggestedSets = useCallback(
+    (exerciseName: string): QuickSet[] => {
+      const suggested = getSuggestionForName(exerciseName);
+      if (!suggested || suggested.sets.length === 0) {
+        return [{ id: generateId(), reps: '10', weight: '', done: false }];
+      }
+      return suggested.sets.map((set) => ({
+        id: generateId(),
+        reps: set.reps || '10',
+        weight: set.weight || '',
+        done: false,
+      }));
+    },
+    [getSuggestionForName]
+  );
+
   const addExerciseFromName = (name: string, muscle?: string) => {
+    const suggested = getSuggestionForName(name);
     setExercises((prev) => [
       ...prev,
       {
         id: generateId(),
         name,
-        muscleGroup: muscle || 'Övrigt',
-        sets: [{ id: generateId(), reps: '10', weight: '' }],
+        muscleGroup: normalizeMuscleGroup(muscle || suggested?.muscleGroup || 'Övrigt', t),
+        sets: buildSuggestedSets(name),
       },
     ]);
   };
@@ -381,13 +542,14 @@ const defaultTitle =
       if (exists) {
         return prev.filter((e) => e.name !== name);
       }
+      const suggested = getSuggestionForName(name);
       return [
         ...prev,
         {
           id: generateId(),
           name,
-          muscleGroup: normalizeMuscleGroup(group || t('exercises.groups.Övrigt')),
-          sets: [{ id: generateId(), reps: '10', weight: '', done: false }],
+          muscleGroup: normalizeMuscleGroup(group || suggested?.muscleGroup || t('exercises.groups.Övrigt'), t),
+          sets: buildSuggestedSets(name),
         },
       ];
     });
@@ -396,7 +558,7 @@ const defaultTitle =
   const handleAddCustomExercise = () => {
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert(t('common.error'), t('quick.customNameError'));
+      toast(t('quick.customNameError'));
       return;
     }
     addExerciseFromName(trimmed, t('exercises.groups.Övrigt'));
@@ -422,6 +584,50 @@ const defaultTitle =
     );
   };
 
+  const handleCompleteSet = (exerciseId: string, setIndex: number) => {
+    const exerciseIdx = exercises.findIndex((ex) => ex.id === exerciseId);
+    if (exerciseIdx < 0) return;
+    const currentExercise = exercises[exerciseIdx];
+    const currentSet = currentExercise.sets[setIndex];
+    if (!currentSet) return;
+
+    setExercises((prev) =>
+      prev.map((ex) =>
+        ex.id === exerciseId
+          ? {
+              ...ex,
+              sets: ex.sets.map((s, idx) => (idx === setIndex ? { ...s, done: true } : s)),
+            }
+          : ex
+      )
+    );
+
+    Haptics.selectionAsync();
+    toast(t('quick.setCompletedToast', undefined, setIndex + 1));
+
+    const nextSetInExercise = currentExercise.sets[setIndex + 1];
+    if (nextSetInExercise) {
+      setFocusTargetKey(`${exerciseId}:${nextSetInExercise.id}:reps`);
+      return;
+    }
+
+    const nextExercise = exercises[exerciseIdx + 1];
+    if (nextExercise && nextExercise.sets.length > 0) {
+      setFocusTargetKey(`${nextExercise.id}:${nextExercise.sets[0].id}:reps`);
+    }
+  };
+
+  const addRecentExercise = (name: string, muscleGroup?: string) => {
+    const alreadyAdded = exercises.some((ex) => ex.name.toLowerCase() === name.toLowerCase());
+    if (alreadyAdded) {
+      toast(t('quick.recentAlreadyAdded', undefined, name));
+      return;
+    }
+    Haptics.selectionAsync();
+    addExerciseFromName(name, muscleGroup);
+    toast(t('quick.recentAddedToast', undefined, name));
+  };
+
   const handleFinish = () => {
     Haptics.selectionAsync();
    const hasInvalidWeight = exercises.some((ex) =>
@@ -441,14 +647,14 @@ const defaultTitle =
 
   const saveWorkout = async () => {
     if (!title.trim()) {
-      Alert.alert(t('common.error'), t('quick.titleError'));
+      toast(t('quick.titleError'));
       return;
     }
     const hasInvalidWeight = exercises.some((ex) =>
       ex.sets.some((s) => Number.isNaN(parseWeightInput(s.weight)))
     );
     if (hasInvalidWeight) {
-      Alert.alert(t('common.error'), t('quick.weightInvalid'));
+      toast(t('quick.weightInvalid'));
       return;
     }
 
@@ -514,29 +720,14 @@ const defaultTitle =
       });
     }
     clearOngoingQuickWorkout();
-
-    Alert.alert(
-      t('quick.finishCongratsTitle'),
-      t('quick.finishCongratsBody', undefined, {
-        exercises: workoutExercises.length,
-        sets: totalSets,
-        minutes: durationMinutes,
-      }),
-      [
-        {
-          text: t('quick.saveTemplate'),
-          onPress: () => {
-            setTemplateName(title);
-            setTemplateColor(color);
-            setTemplateModalVisible(true);
-          },
-        },
-        {
-          text: t('quick.toHome'),
-          onPress: () => router.replace('/'),
-        },
-      ]
-    );
+    setTemplateName(title);
+    setTemplateColor(color);
+    setFinishSummary({
+      exercises: workoutExercises.length,
+      sets: totalSets,
+      minutes: durationMinutes,
+    });
+    setFinishModalVisible(true);
   };
 
   const handleCancel = () => {
@@ -593,17 +784,73 @@ const defaultTitle =
     addTemplate(template);
     setTemplateModalVisible(false);
     toast(t('quick.templateSavedToast'));
-    Alert.alert(t('quick.templateSavedTitle'), t('quick.templateSavedBody'), [
-      { text: t('common.ok'), onPress: () => router.replace('/') },
-    ]);
+    toast(t('quick.templateSavedBody'));
+    router.push('/');
   };
 
   return (
     <LinearGradient colors={gradients.appBackground} style={{ flex: 1 }}>
       <SafeAreaView style={styles.safe}>
-        <View style={{ paddingHorizontal: 16, paddingTop: 6 }}>
+        <View style={styles.backPillWrap}>
           <BackPill />
         </View>
+        <Modal
+          visible={finishModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setFinishModalVisible(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{t('quick.finishCongratsTitle')}</Text>
+              <Text style={styles.modalSub}>
+                {t('quick.finishCongratsBody', undefined, {
+                  exercises: finishSummary?.exercises ?? 0,
+                  sets: finishSummary?.sets ?? 0,
+                  minutes: finishSummary?.minutes ?? 0,
+                })}
+              </Text>
+              <View style={styles.finishStatsRow}>
+                <View style={styles.finishStatPill}>
+                  <Text style={styles.finishStatLabel}>{t('quick.finishStatExercises')}</Text>
+                  <Text style={styles.finishStatValue}>{finishSummary?.exercises ?? 0}</Text>
+                </View>
+                <View style={styles.finishStatPill}>
+                  <Text style={styles.finishStatLabel}>{t('quick.finishStatSets')}</Text>
+                  <Text style={styles.finishStatValue}>{finishSummary?.sets ?? 0}</Text>
+                </View>
+                <View style={styles.finishStatPill}>
+                  <Text style={styles.finishStatLabel}>{t('quick.finishStatMinutes')}</Text>
+                  <Text style={styles.finishStatValue}>{finishSummary?.minutes ?? 0}</Text>
+                </View>
+              </View>
+              <View style={styles.finishActionsStack}>
+                <AppButton
+                  title={t('quick.saveTemplate')}
+                  variant="secondary"
+                  onPress={() => {
+                    setFinishModalVisible(false);
+                    setTemplateModalVisible(true);
+                  }}
+                />
+                <AppButton
+                  title={t('quick.toHome')}
+                  variant="primary"
+                  onPress={() => {
+                    setFinishModalVisible(false);
+                    router.push('/');
+                  }}
+                />
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalCancel]}
+                  onPress={() => setFinishModalVisible(false)}
+                >
+                  <Text style={styles.modalCancelText}>{t('common.close')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
         <Modal
           visible={templateModalVisible}
           transparent
@@ -664,47 +911,55 @@ const defaultTitle =
           contentContainerStyle={styles.pageContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.headerRow}>
-            <View style={styles.titleRow}>
-              <View style={[styles.colorDot, { backgroundColor: color }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.title}>{title}</Text>
-                <Text style={styles.subtitle}>{t('quick.ongoing')}</Text>
+          <StaggerReveal delay={40}>
+            <View style={styles.headerRow}>
+              <View style={styles.titleRow}>
+                <View style={[styles.colorDot, { backgroundColor: color }]} />
+                <ScreenHeader
+                  title={title}
+                  subtitle={t('quick.ongoing')}
+                  compact
+                  tone="blue"
+                  style={styles.titleHeader}
+                />
+              </View>
+
+              <View style={styles.headerRight}>
+                <View style={styles.timerPill}>
+                  <Clock size={14} color={colors.textMain} />
+                  <Text style={styles.timerText}>{formattedTime}</Text>
+                </View>
+                <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
+                  <X size={16} color={colors.textSoft} />
+                </TouchableOpacity>
               </View>
             </View>
+          </StaggerReveal>
 
-            <View style={styles.headerRight}>
-              <View style={styles.timerPill}>
-                <Clock size={14} color="#e5e7eb" />
-                <Text style={styles.timerText}>{formattedTime}</Text>
+          <StaggerReveal delay={90}>
+            <GlassCard style={styles.progressCard}>
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressTitle}>{t('quick.progressTitle')}</Text>
+                <Text style={styles.progressLabel}>{t('quick.progressLabel', undefined, totalSets)}</Text>
               </View>
-              <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
-                <X size={16} color="#94a3b8" />
-              </TouchableOpacity>
-            </View>
-          </View>
 
-          <GlassCard style={styles.progressCard}>
-            <View style={styles.progressHeader}>
-              <Text style={styles.progressTitle}>{t('quick.progressTitle')}</Text>
-              <Text style={styles.progressLabel}>{t('quick.progressLabel', undefined, totalSets)}</Text>
-            </View>
+              <View style={styles.progressBarBackground}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { width: `${progressPct}%` },
+                  ]}
+                />
+              </View>
 
-            <View style={styles.progressBarBackground}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: totalSets > 0 ? '100%' : '4%' },
-                ]}
-              />
-            </View>
+              <Text style={styles.progressHint}>
+                {t('quick.progressHint')}
+              </Text>
+            </GlassCard>
+          </StaggerReveal>
 
-            <Text style={styles.progressHint}>
-              {t('quick.progressHint')}
-            </Text>
-          </GlassCard>
-
-          <GlassCard style={styles.card}>
+          <StaggerReveal delay={140}>
+            <GlassCard style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitle}>{t('quick.passInfo')}</Text>
@@ -717,8 +972,8 @@ const defaultTitle =
                 }}
                 activeOpacity={0.8}
               >
-                <View style={[styles.colorCircle, { backgroundColor: color || '#3b82f6' }]}>
-                  <Palette size={16} color="#0b1120" />
+                <View style={[styles.colorCircle, { backgroundColor: color || colors.accentBlue }]}>
+                  <Palette size={16} color={colors.background} />
                 </View>
               </TouchableOpacity>
             </View>
@@ -768,9 +1023,11 @@ const defaultTitle =
               maxLength={220}
             />
             {notesError ? <Text style={styles.errorText}>{notesError}</Text> : null}
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
 
-          <GlassCard style={styles.card}>
+          <StaggerReveal delay={190}>
+            <GlassCard style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderLeft}>
                 <View style={styles.iconCircle}>
@@ -787,7 +1044,11 @@ const defaultTitle =
 
             <View style={styles.actionRow}>
               <TouchableOpacity
-                style={[styles.actionChip, styles.actionChipPrimary]}
+                style={[
+                  styles.actionChip,
+                  styles.actionChipPrimary,
+                  showExerciseList && styles.actionChipActive,
+                ]}
                 onPress={() => {
                   Haptics.selectionAsync();
                   setShowExerciseList((prev) => !prev);
@@ -797,12 +1058,18 @@ const defaultTitle =
                 accessibilityLabel={t('quick.openLibrary')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>{t('quick.chooseExercise')}</Text>
+                <PlusCircle size={15} color={showExerciseList ? colors.textMain : colors.textSoft} />
+                <Text style={[styles.actionChipText, showExerciseList && styles.actionChipTextActive]}>
+                  {t('quick.chooseExercise')}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionChip, styles.actionChipSecondary]}
+                style={[
+                  styles.actionChip,
+                  styles.actionChipSecondary,
+                  showCustomInput && styles.actionChipActive,
+                ]}
                 onPress={() => {
                   Haptics.selectionAsync();
                   setShowCustomInput((prev) => !prev);
@@ -812,12 +1079,18 @@ const defaultTitle =
                 accessibilityLabel={t('quick.addCustom')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>{t('quick.customExercise')}</Text>
+                <PlusCircle size={15} color={showCustomInput ? colors.textMain : colors.textSoft} />
+                <Text style={[styles.actionChipText, showCustomInput && styles.actionChipTextActive]}>
+                  {t('quick.customExercise')}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionChip, styles.actionChipTertiary]}
+                style={[
+                  styles.actionChip,
+                  styles.actionChipTertiary,
+                  showTemplatePicker && styles.actionChipActive,
+                ]}
                 onPress={() => {
                   Haptics.selectionAsync();
                   setShowTemplatePicker((prev) => !prev);
@@ -827,10 +1100,32 @@ const defaultTitle =
                 accessibilityLabel={t('quick.chooseRoutine')}
                 accessibilityRole="button"
               >
-                <ListChecks size={14} color="#0b1120" />
-                <Text style={styles.actionChipTextTertiary}>{t('quick.routines')}</Text>
+                <ListChecks size={15} color={showTemplatePicker ? colors.textMain : colors.textSoft} />
+                <Text style={[styles.actionChipText, showTemplatePicker && styles.actionChipTextActive]}>
+                  {t('quick.routines')}
+                </Text>
               </TouchableOpacity>
             </View>
+
+            {recentExercises.length > 0 && (
+              <View style={styles.recentBlock}>
+                <Text style={styles.recentTitle}>{t('quick.recentTitle')}</Text>
+                <View style={styles.recentRow}>
+                  {recentExercises.map((item) => (
+                    <TouchableOpacity
+                      key={`recent-${item.name}`}
+                      style={styles.recentChip}
+                      activeOpacity={0.9}
+                      onPress={() => addRecentExercise(item.name, item.muscleGroup)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('quick.recentA11y', undefined, item.name)}
+                    >
+                      <Text style={styles.recentChipText}>{item.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {showCustomInput && (
               <View style={styles.customExerciseBox}>
@@ -842,13 +1137,12 @@ const defaultTitle =
                   placeholder={t('quick.customPlaceholder')}
                   placeholderTextColor={colors.textSoft}
                 />
-                <TouchableOpacity
-                  style={[styles.button, styles.secondaryButton, { marginTop: 6 }]}
+                <AppButton
+                  title={t('quick.addCustomCta')}
                   onPress={handleAddCustomExercise}
-                  activeOpacity={0.9}
-                >
-                  <Text style={styles.buttonText}>{t('quick.addCustomCta')}</Text>
-                </TouchableOpacity>
+                  style={{ marginTop: 6 }}
+                  variant="secondary"
+                />
               </View>
             )}
 
@@ -957,26 +1251,28 @@ const defaultTitle =
             </View>
 
             {exercises.length > 0 && (
-              <NeonButton
+              <AppButton
                 title={t('quick.confirmExercises')}
                 onPress={() => {
                   setShowDetails(true);
                   setShowExerciseList(false);
                   setShowCustomInput(false);
                 }}
-                variant="green"
-                hideIcon
+                variant="success"
                 style={styles.confirmButton}
                 accessibilityLabel={t('quick.confirmExercises')}
               />
             )}
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
 
           {showDetails && exercises.length > 0 && (
-            <View style={styles.listContainer}>
+            <StaggerReveal delay={240}>
+              <View style={styles.listContainer}>
               {exercises.map((ex) => (
                 <ExerciseDetailCard
                   key={ex.id}
+                  exerciseId={ex.id}
                   name={ex.name}
                   muscleGroups={MUSCLE_GROUPS}
                   currentMuscle={ex.muscleGroup}
@@ -985,11 +1281,14 @@ const defaultTitle =
                       prev.map((item) => (item.id === ex.id ? { ...item, muscleGroup: mg } : item))
                     )
                   }
-                  sets={ex.sets.map((s) => ({ reps: s.reps, weight: s.weight }))}
+                  sets={ex.sets.map((s) => ({ reps: s.reps, weight: s.weight, done: s.done, setId: s.id }))}
                   onChangeSet={(setIdx, field, value) =>
                     updateSetField(ex.id, ex.sets[setIdx].id, field, value)
                   }
                   onAddSet={() => addSetToExercise(ex.id)}
+                  onCompleteSet={(setIdx) => handleCompleteSet(ex.id, setIdx)}
+                  focusTargetKey={focusTargetKey}
+                  onFocusHandled={() => setFocusTargetKey(null)}
                 />
               ))}
 
@@ -998,15 +1297,19 @@ const defaultTitle =
               </TouchableOpacity>
 
               {inputError ? <Text style={styles.errorText}>{inputError}</Text> : null}
-            </View>
+              </View>
+            </StaggerReveal>
           )}
         </ScrollView>
 
         <View style={styles.footer}>
-          <NeonButton
+          <AppButton
             title={t('quick.finish')}
-            onPress={handleFinish}
-            toastMessage={t('quick.finishToast')}
+            variant="primary"
+            onPress={() => {
+              handleFinish();
+              toast(t('quick.finishToast'));
+            }}
           />
           <Text style={styles.finishButtonSub}>{t('quick.finishSummary', undefined, totalSets)}</Text>
         </View>
@@ -1018,8 +1321,12 @@ const defaultTitle =
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  backPillWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
   },
   pageContent: {
     paddingBottom: 120,
@@ -1028,7 +1335,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: layout.sectionGap,
   },
   titleRow: {
     flexDirection: 'row',
@@ -1036,12 +1343,16 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
   },
+  titleHeader: {
+    flex: 1,
+    marginBottom: 0,
+  },
   colorDot: {
     width: 22,
     height: 22,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: '#0f172a',
+    borderRadius: radii.button,
+    borderWidth: 1.5,
+    borderColor: colors.primaryBright,
   },
   title: {
     ...typography.title,
@@ -1055,37 +1366,37 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: spacing.sm,
     marginLeft: 8,
   },
   timerPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xs,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#020617',
+    paddingVertical: 7,
+    borderRadius: radii.button,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   timerText: {
-    color: '#f9fafb',
+    color: colors.textMain,
     fontWeight: '600',
     fontSize: 12,
   },
   closeButton: {
     width: 30,
     height: 30,
-    borderRadius: 999,
+    borderRadius: radii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#020617',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   progressCard: {
-    marginBottom: 12,
+    marginBottom: layout.sectionGap,
   },
   progressHeader: {
     flexDirection: 'row',
@@ -1104,16 +1415,16 @@ const styles = StyleSheet.create({
   },
   progressBarBackground: {
     height: 10,
-    borderRadius: 999,
-    backgroundColor: '#020617',
+    borderRadius: radii.button,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 999,
-    backgroundColor: '#a855f7',
+    borderRadius: radii.button,
+    backgroundColor: colors.primary,
   },
   progressHint: {
     ...typography.micro,
@@ -1121,7 +1432,7 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
   },
   card: {
-    marginTop: 12,
+    marginTop: layout.sectionGap,
   },
   cardTitle: {
     ...typography.title,
@@ -1129,8 +1440,9 @@ const styles = StyleSheet.create({
   },
   cardText: {
     ...typography.caption,
-    color: colors.textMain,
+    color: colors.textSoft,
     marginTop: 2,
+    lineHeight: 18,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1152,10 +1464,10 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 34,
     height: 34,
-    borderRadius: 12,
-    backgroundColor: '#0b1220',
+    borderRadius: radii.button,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1164,43 +1476,47 @@ const styles = StyleSheet.create({
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.sm,
     marginBottom: 10,
+    flexWrap: 'wrap',
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
+    gap: 5,
+    borderRadius: radii.button,
     paddingVertical: 8,
     paddingHorizontal: 12,
+    minHeight: 36,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
   },
   actionChipPrimary: {
-    backgroundColor: colors.accentGreen,
+    backgroundColor: colors.surface,
   },
   actionChipSecondary: {
-    backgroundColor: colors.accentBlue,
+    backgroundColor: colors.surface,
   },
   actionChipTertiary: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.surface,
   },
-  actionChipTextPrimary: {
-    ...typography.caption,
-    color: '#022c22',
+  actionChipActive: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryBright,
   },
-  actionChipTextSecondary: {
+  actionChipText: {
     ...typography.caption,
-    color: '#0b1120',
+    color: colors.textSoft,
+    fontWeight: '700',
   },
-  actionChipTextTertiary: {
-    ...typography.caption,
-    color: '#0b1120',
+  actionChipTextActive: {
+    color: colors.textMain,
   },
   customExerciseBox: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
-    borderRadius: 14,
+    borderColor: colors.cardBorder,
+    borderRadius: radii.button,
     padding: 10,
     marginBottom: 10,
   },
@@ -1211,10 +1527,10 @@ const styles = StyleSheet.create({
   },
   selectedBox: {
     marginTop: 10,
-    backgroundColor: '#020617',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   sectionLabel: {
@@ -1222,11 +1538,44 @@ const styles = StyleSheet.create({
     color: colors.textMain,
     marginBottom: 6,
   },
+  recentBlock: {
+    marginBottom: 8,
+  },
+  recentTitle: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginBottom: 6,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  recentRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  recentChip: {
+    minHeight: 30,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+  },
+  recentChipText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
   selectedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 36,
     paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.cardBorder,
   },
   selectedLeft: {
     flexDirection: 'row',
@@ -1240,7 +1589,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentBlue,
   },
   selectedName: {
-    ...typography.bodyBold,
+    ...typography.body,
     color: colors.textMain,
   },
   emptyText: {
@@ -1253,27 +1602,28 @@ const styles = StyleSheet.create({
   },
   removeText: {
     ...typography.micro,
-    color: '#f97316',
+    color: colors.warning,
+    fontWeight: '700',
   },
   notesInput: {
     minHeight: 70,
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     fontSize: 13,
     textAlignVertical: 'top',
   },
   addExerciseButton: {
     marginTop: 4,
-    borderRadius: 12,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
-    paddingVertical: 10,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    paddingVertical: 11,
     alignItems: 'center',
   },
   addExerciseText: {
@@ -1282,22 +1632,22 @@ const styles = StyleSheet.create({
   },
   errorText: {
     ...typography.caption,
-    color: '#fca5a5',
+    color: colors.accent,
     marginTop: 6,
   },
   templateLibrary: {
     marginTop: 10,
-    backgroundColor: '#050b16',
-    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   templateListCard: {
-    borderRadius: 12,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
-    backgroundColor: '#020617',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
   },
   templateEmpty: {
@@ -1309,14 +1659,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#020617',
+    backgroundColor: colors.backgroundSoft,
   },
   templateRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#111827',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.cardBorder,
   },
   templateRowActive: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
   },
   templateLeft: {
     flexDirection: 'row',
@@ -1330,10 +1680,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: colors.primary,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   templateName: {
-    ...typography.bodyBold,
+    ...typography.body,
     color: colors.textMain,
   },
   templateMeta: {
@@ -1350,10 +1700,10 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    backgroundColor: '#0b1220',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radii.card,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     padding: 16,
     gap: 8,
   },
@@ -1367,13 +1717,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   modalInput: {
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     fontSize: 13,
   },
   modalActions: {
@@ -1382,19 +1732,49 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 8,
   },
+  finishStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  finishStatPill: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    borderRadius: radii.button,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  finishStatLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  finishStatValue: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    marginTop: 2,
+  },
+  finishActionsStack: {
+    gap: 8,
+    marginTop: 2,
+  },
   modalButton: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 9,
+    borderRadius: radii.button,
     borderWidth: 1,
   },
   modalCancel: {
-    borderColor: '#334155',
-    backgroundColor: '#0f172a',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   modalSave: {
-    borderColor: colors.accentGreen,
-    backgroundColor: '#14532d',
+    borderColor: colors.success,
+    backgroundColor: colors.success,
   },
   modalCancelText: {
     ...typography.caption,
@@ -1402,14 +1782,15 @@ const styles = StyleSheet.create({
   },
   modalSaveText: {
     ...typography.caption,
-    color: '#bbf7d0',
+    color: colors.background,
+    fontWeight: '700',
   },
   colorOption: {
     width: 32,
     height: 32,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: '#020617',
+    borderRadius: radii.button,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
   },
   colorOptionActive: {
     borderColor: '#ffffff',
@@ -1423,9 +1804,9 @@ const styles = StyleSheet.create({
   colorCircle: {
     width: 26,
     height: 26,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: '#020617',
+    borderRadius: radii.button,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1434,25 +1815,27 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.06 }],
   },
   input: {
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    minHeight: inputs.height,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     fontSize: 13,
   },
   button: {
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: radii.button,
+    paddingVertical: 11,
+    minHeight: inputs.height,
     alignItems: 'center',
     justifyContent: 'center',
   },
   secondaryButton: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   buttonText: {
     ...typography.bodyBold,
@@ -1466,7 +1849,7 @@ const styles = StyleSheet.create({
   },
   finishButtonSub: {
     ...typography.micro,
-    color: '#e0f2fe',
+    color: colors.textMain,
     marginTop: 2,
   },
 });

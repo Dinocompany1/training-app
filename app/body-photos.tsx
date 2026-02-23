@@ -16,10 +16,13 @@ import {
 } from 'react-native';
 import GlassCard from '../components/ui/GlassCard';
 import BackPill from '../components/ui/BackPill';
-import { colors, gradients, typography } from '../constants/theme';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { colors, gradients, inputs, spacing, typography } from '../constants/theme';
 import { BodyPhoto, useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import { compareISODate, todayISO } from '../utils/date';
+import { createId } from '../utils/id';
+import { toast } from '../utils/toast';
 
 const todayStr = todayISO();
 
@@ -32,12 +35,13 @@ export default function BodyPhotosScreen() {
   const [date, setDate] = useState(todayStr);
   const [note, setNote] = useState('');
   const [pickError, setPickError] = useState('');
+  const [focusedInput, setFocusedInput] = useState<'date' | 'note' | null>(null);
 
   const sorted = useMemo(() => {
     return [...bodyPhotos].sort((a, b) => {
       const timeDiff = compareISODate(b.date, a.date);
       if (timeDiff !== 0) return timeDiff;
-      return (Number(b.id) || 0) - (Number(a.id) || 0);
+      return b.id.localeCompare(a.id);
     });
   }, [bodyPhotos]);
 
@@ -48,7 +52,7 @@ export default function BodyPhotosScreen() {
       return;
     }
     const photo: BodyPhoto = {
-      id: Date.now().toString(),
+      id: createId('photo'),
       uri: trimmed,
       date: date || todayStr,
       note: note.trim() || undefined,
@@ -78,12 +82,26 @@ export default function BodyPhotosScreen() {
   };
 
   const handleRemove = (id: string) => {
+    const photo = bodyPhotos.find((p) => p.id === id);
+    if (!photo) return;
     Alert.alert(t('bodyPhotos.deleteTitle'), t('bodyPhotos.deleteConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'),
         style: 'destructive',
-        onPress: () => removeBodyPhoto(id),
+        onPress: () => {
+          removeBodyPhoto(id);
+          toast({
+            message: t('bodyPhotos.deletedToast'),
+            action: {
+              label: t('common.undo'),
+              onPress: () => {
+                addBodyPhoto(photo);
+                toast(t('common.restored'));
+              },
+            },
+          });
+        },
       },
     ]);
   };
@@ -100,7 +118,7 @@ export default function BodyPhotosScreen() {
       >
         <View style={styles.headerRow}>
           <BackPill onPress={() => router.back()} />
-          <Text style={styles.title}>{t('bodyPhotos.title')}</Text>
+          <ScreenHeader title={t('bodyPhotos.title')} compact tone="rose" style={styles.headerTitle} />
           <View style={styles.headerSpacer} />
         </View>
         <GlassCard style={styles.card}>
@@ -112,16 +130,24 @@ export default function BodyPhotosScreen() {
             <Text style={styles.errorText}>{pickError}</Text>
           ) : null}
           <TextInput
-            style={styles.input}
+            style={[styles.input, focusedInput === 'date' ? styles.inputFocused : null]}
             value={date}
             onChangeText={setDate}
+            onFocus={() => setFocusedInput('date')}
+            onBlur={() => setFocusedInput(null)}
             placeholder={t('bodyPhotos.datePlaceholder')}
             placeholderTextColor={colors.textSoft}
           />
           <TextInput
-            style={[styles.input, styles.noteInput]}
+            style={[
+              styles.input,
+              styles.noteInput,
+              focusedInput === 'note' ? styles.inputFocused : null,
+            ]}
             value={note}
             onChangeText={setNote}
+            onFocus={() => setFocusedInput('note')}
+            onBlur={() => setFocusedInput(null)}
             placeholder={t('bodyPhotos.notePlaceholder')}
             placeholderTextColor={colors.textSoft}
             multiline
@@ -188,13 +214,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 28,
+    paddingTop: spacing.xl + 4,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 6,
+  },
+  headerTitle: {
+    flex: 1,
+    marginBottom: 0,
   },
   headerSpacer: {
     width: 44,
@@ -245,14 +276,22 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     ...typography.body,
+  },
+  inputFocused: {
+    borderColor: '#60a5fa',
+    shadowColor: '#60a5fa',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
   noteInput: {
     minHeight: 60,

@@ -3,19 +3,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../components/ui/GlassCard';
+import ScreenHeader from '../components/ui/ScreenHeader';
 import { colors, gradients, typography } from '../constants/theme';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
 import { toISODate } from '../utils/date';
+import { parseRepsValue } from '../utils/reps';
 
 type PeriodKey = '7d' | '30d' | '90d' | 'all';
 
@@ -64,12 +66,12 @@ export default function TrainingFrequencyScreen() {
           const setCount = ex.sets || performed.length || 0;
           const repTotal =
             performed.length > 0
-              ? performed.reduce((acc, s) => acc + (Number(String(s.reps)) || 0), 0)
+              ? performed.reduce((acc, s) => acc + parseRepsValue(String(s.reps)), 0)
               : 0;
           const volume =
             performed.length > 0
               ? performed.reduce((acc, s) => {
-                  const repsNum = Number(String(s.reps)) || 0;
+                  const repsNum = parseRepsValue(String(s.reps));
                   const wt = Number(s.weight) || 0;
                   return acc + repsNum * wt;
                 }, 0)
@@ -145,12 +147,12 @@ export default function TrainingFrequencyScreen() {
         const sets = ex.sets || performed.length || 0;
         const reps =
           performed.length > 0
-            ? performed.reduce((acc, s) => acc + (Number(String(s.reps)) || 0), 0)
+            ? performed.reduce((acc, s) => acc + parseRepsValue(String(s.reps)), 0)
             : 0;
         const volume =
           performed.length > 0
             ? performed.reduce((acc, s) => {
-                const repsNum = Number(String(s.reps)) || 0;
+                const repsNum = parseRepsValue(String(s.reps));
                 const wt = Number(s.weight) || 0;
                 return acc + repsNum * wt;
               }, 0)
@@ -187,14 +189,11 @@ export default function TrainingFrequencyScreen() {
           <View style={styles.backRow}>
             <BackPill onPress={() => router.back()} />
           </View>
-          <Text style={styles.title}>
-            {selected
-              ? `${t('stats.freqTitle')} · ${selected}`
-              : t('stats.freqTitle')}
-          </Text>
-          <Text style={styles.subtitle}>
-            {t('stats.freqSubtitle')}
-          </Text>
+          <ScreenHeader
+            title={selected ? `${t('stats.freqTitle')} · ${selected}` : t('stats.freqTitle')}
+            subtitle={t('stats.freqSubtitle')}
+            tone="teal"
+          />
           <Text style={styles.metaLine}>
             {t(`stats.filters.${period}`)} · {selected || t('stats.freqSelectTitle')}
           </Text>
@@ -221,7 +220,7 @@ export default function TrainingFrequencyScreen() {
           <TouchableOpacity
             style={[styles.chip, styles.chipActive]}
             onPress={() => {
-              router.replace('/training-frequency/select');
+              router.push('/training-frequency/select');
             }}
             activeOpacity={0.9}
           >

@@ -1,21 +1,23 @@
 // app/(tabs)/profile.tsx
 import * as Haptics from 'expo-haptics';
+import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Target, User, Image as ImageIcon } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
-  Alert,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
 import BadgePill from '../../components/ui/BadgePill';
-import { colors, gradients, typography } from '../../constants/theme';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import StaggerReveal from '../../components/ui/StaggerReveal';
+import { colors, gradients, inputs, layout, spacing, typography } from '../../constants/theme';
 import EmptyState from '../../components/ui/EmptyState';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { toast } from '../../utils/toast';
@@ -24,30 +26,91 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { useTranslation } from '../../context/TranslationContext';
 import { todayISO } from '../../utils/date';
+import { createId } from '../../utils/id';
+import { appConfig } from '../../utils/appConfig';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { weeklyGoal, setWeeklyGoal, workouts, addBodyPhoto } = useWorkouts();
+  const {
+    weeklyGoal,
+    setWeeklyGoal,
+    workouts,
+    addBodyPhoto,
+    syncStatus,
+    syncErrorMessage,
+  } = useWorkouts();
   const { lang, setLanguage, t } = useTranslation();
   const [goalInput, setGoalInput] = useState(String(weeklyGoal));
   const [goalError, setGoalError] = useState('');
   const totalWorkouts = workouts.length;
   const [selectedUri, setSelectedUri] = useState<string | null>(null);
   const [photoNote, setPhotoNote] = useState('');
+  const [focusedInput, setFocusedInput] = useState<'goal' | 'note' | null>(null);
   const todayStr = todayISO();
+  const updateGoalBy = (delta: number) => {
+    const current = Number(goalInput.replace(/[^0-9]/g, '') || '0');
+    const next = Math.max(0, Math.min(14, current + delta));
+    setGoalError('');
+    setGoalInput(String(next));
+    setWeeklyGoal(next);
+    Haptics.selectionAsync();
+  };
+
+  const openUrl = async (url: string | null) => {
+    if (!url) {
+      toast(t('profile.linkMissing'));
+      return;
+    }
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      toast(t('profile.linkInvalid'));
+      return;
+    }
+    await Linking.openURL(url);
+  };
+
+  const openSupportMail = async () => {
+    if (!appConfig.supportEmail) {
+      toast(t('profile.linkMissing'));
+      return;
+    }
+    const mailto = `mailto:${appConfig.supportEmail}`;
+    const supported = await Linking.canOpenURL(mailto);
+    if (!supported) {
+      toast(t('profile.linkInvalid'));
+      return;
+    }
+    await Linking.openURL(mailto);
+  };
 
   const handleGoalBlur = () => {
     const clean = goalInput.replace(/[^0-9]/g, '');
-    const n = Number(clean);
-    if (Number.isNaN(n)) {
+    if (!clean.trim()) {
       setGoalError(t('profile.goalError'));
       setGoalInput(String(weeklyGoal));
       return;
     }
+    const n = Number(clean);
     const clamped = Math.max(0, Math.min(14, n));
     setGoalError('');
     setWeeklyGoal(clamped);
     setGoalInput(String(clamped));
+  };
+
+  const pickBodyPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      toast(t('profile.permBody'));
+      return null;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (res.canceled || !res.assets || !res.assets[0]?.uri) {
+      return null;
+    }
+    return res.assets[0].uri;
   };
 
   return (
@@ -56,23 +119,25 @@ export default function ProfileScreen() {
         colors={gradients.appBackground}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
         <ScrollView
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
         >
           {/* HEADER / USER CARD */}
-          <GlassCard style={styles.headerCard}>
+          <StaggerReveal delay={40}>
+            <GlassCard style={styles.headerCard} tone="neutral">
             <View style={styles.headerRow}>
               <View style={styles.avatarCircle}>
                 <User size={30} color="#e5e7eb" />
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.nameText}>{t('profile.title')}</Text>
-                <Text style={styles.subtitleText}>
-                  {t('profile.subtitle')}
-                </Text>
-              </View>
+              <ScreenHeader
+                title={t('profile.title')}
+                subtitle={t('profile.subtitle')}
+                compact
+                tone="neutral"
+                style={styles.profileHeaderText}
+              />
             </View>
 
             <View style={styles.langRow}>
@@ -91,6 +156,9 @@ export default function ProfileScreen() {
                         active && styles.langButtonActive,
                       ]}
                       onPress={() => setLanguage(item.key as 'sv' | 'en')}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={item.label}
                     >
                       <Text
                         style={[
@@ -118,12 +186,19 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             </View>
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
+          {syncStatus === 'error' && syncErrorMessage ? (
+            <Text style={styles.syncErrorInline}>
+              {t('profile.syncError')} {syncErrorMessage}
+            </Text>
+          ) : null}
 
           {/* MÅL / VECKOMÅL */}
-          <GlassCard style={styles.card}>
+          <StaggerReveal delay={90}>
+            <GlassCard style={styles.card} tone="neutral">
             <View style={styles.cardTitleRow}>
-              <Target size={20} color={colors.primary} />
+              <Target size={20} color={colors.textSoft} />
               <Text style={styles.sectionTitle}>{t('profile.weeklyCardTitle')}</Text>
             </View>
             <Text style={styles.sectionSub}>
@@ -133,21 +208,44 @@ export default function ProfileScreen() {
             <View style={styles.goalRow}>
               <Text style={styles.goalLabel}>{t('profile.goalLabel')}</Text>
               <View style={styles.goalInputRow}>
+                <TouchableOpacity
+                  style={styles.goalStepButton}
+                  onPress={() => updateGoalBy(-1)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('profile.goalLabel')}
+                >
+                  <Text style={styles.goalStepText}>-</Text>
+                </TouchableOpacity>
                 <TextInput
                   value={goalInput}
                   onChangeText={(t) => {
                     const cleaned = t.replace(/[^0-9]/g, '').slice(0, 2);
                     setGoalError('');
                     setGoalInput(cleaned);
+                    if (!cleaned.trim()) return;
+                    const next = Math.max(0, Math.min(14, Number(cleaned)));
+                    setWeeklyGoal(next);
                   }}
-                  onBlur={handleGoalBlur}
                   keyboardType="number-pad"
-                  style={styles.goalInput}
+                  style={[styles.goalInput, focusedInput === 'goal' ? styles.inputFocused : null]}
+                  onFocus={() => setFocusedInput('goal')}
+                  onBlur={() => {
+                    setFocusedInput(null);
+                    handleGoalBlur();
+                  }}
                   maxLength={2}
                   accessibilityLabel={t('profile.goalA11y')}
                   accessibilityRole="adjustable"
                 />
                 <Text style={styles.goalSuffix}>{t('profile.goalSuffix')}</Text>
+                <TouchableOpacity
+                  style={styles.goalStepButton}
+                  onPress={() => updateGoalBy(1)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('profile.goalLabel')}
+                >
+                  <Text style={styles.goalStepText}>+</Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -160,16 +258,53 @@ export default function ProfileScreen() {
               style={{ marginTop: 8, alignSelf: 'flex-start' }}
             />
             {goalError ? (
-              <Text style={{ color: '#fca5a5', fontSize: 12, marginTop: 4 }}>
+              <Text style={styles.goalErrorText}>
                 {goalError}
               </Text>
             ) : null}
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
+
+          <StaggerReveal delay={140}>
+            <GlassCard style={styles.card} tone="neutral">
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.sectionTitle}>{t('profile.legalTitle')}</Text>
+            </View>
+            <Text style={styles.sectionSub}>{t('profile.legalSub')}</Text>
+            <View style={styles.linkActions}>
+              <TouchableOpacity
+                style={[styles.pbEmptyButton, styles.secondaryButton]}
+                onPress={() => openUrl(appConfig.privacyPolicyUrl)}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.privacyPolicy')}
+              >
+                <Text style={styles.pbEmptyButtonText}>{t('profile.privacyPolicy')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pbEmptyButton, styles.secondaryButton]}
+                onPress={() => openUrl(appConfig.termsUrl)}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.termsOfUse')}
+              >
+                <Text style={styles.pbEmptyButtonText}>{t('profile.termsOfUse')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pbEmptyButton, styles.secondaryButton]}
+                onPress={openSupportMail}
+                accessibilityRole="button"
+                accessibilityLabel={t('profile.contactSupport')}
+              >
+                <Text style={styles.pbEmptyButtonText}>{t('profile.contactSupport')}</Text>
+              </TouchableOpacity>
+            </View>
+            </GlassCard>
+          </StaggerReveal>
 
           {/* KROPPSBILDER */}
-          <GlassCard style={styles.card}>
+          <StaggerReveal delay={190}>
+            <GlassCard style={styles.card} tone="neutral">
             <View style={styles.cardTitleRow}>
-              <ImageIcon size={20} color={colors.accentBlue} />
+              <ImageIcon size={20} color={colors.textSoft} />
               <Text style={styles.sectionTitle}>{t('profile.bodyPhotosTitle')}</Text>
             </View>
             <Text style={styles.sectionSub}>
@@ -181,17 +316,9 @@ export default function ProfileScreen() {
                   <TouchableOpacity
                     style={[styles.pbEmptyButton, styles.primaryButton]}
                     onPress={async () => {
-                      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (!perm.granted) {
-                        Alert.alert(t('profile.permTitle'), t('profile.permBody'));
-                        return;
-                      }
-                      const res = await ImagePicker.launchImageLibraryAsync({
-                        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                        quality: 0.8,
-                      });
-                      if (!res.canceled && res.assets && res.assets[0]?.uri) {
-                        setSelectedUri(res.assets[0].uri);
+                      const uri = await pickBodyPhoto();
+                      if (uri) {
+                        setSelectedUri(uri);
                         toast(t('profile.photoPicked'));
                       }
                     }}
@@ -211,9 +338,15 @@ export default function ProfileScreen() {
                   <TextInput
                     value={photoNote}
                     onChangeText={setPhotoNote}
+                    onFocus={() => setFocusedInput('note')}
+                    onBlur={() => setFocusedInput(null)}
                     placeholder={t('profile.photoNotePlaceholder')}
                     placeholderTextColor={colors.textSoft}
-                    style={[styles.photoInput, styles.photoNote]}
+                    style={[
+                      styles.photoInput,
+                      styles.photoNote,
+                      focusedInput === 'note' ? styles.inputFocused : null,
+                    ]}
                   />
                   <View style={styles.photoActions}>
                     <TouchableOpacity
@@ -224,7 +357,7 @@ export default function ProfileScreen() {
                           return;
                         }
                         const photo = {
-                          id: Date.now().toString(),
+                          id: createId('photo'),
                           uri: selectedUri,
                           date: todayStr,
                           note: photoNote.trim() || undefined,
@@ -246,8 +379,10 @@ export default function ProfileScreen() {
                     >
                       <Text style={styles.pbEmptyButtonText}>{t('profile.clear')}</Text>
                     </TouchableOpacity>
+                  </View>
+                  <View style={styles.photoActionsSingle}>
                     <TouchableOpacity
-                      style={[styles.pbEmptyButton, styles.secondaryButton]}
+                      style={[styles.pbEmptyButton, styles.secondaryButton, styles.fullWidthButton]}
                       onPress={() => {
                         Haptics.selectionAsync();
                         router.push('/body-photos');
@@ -263,17 +398,9 @@ export default function ProfileScreen() {
                   subtitle={t('profile.emptyPhotosSubtitle')}
                   ctaLabel={t('profile.emptyPhotosCta')}
                   onPressCta={async () => {
-                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (!perm.granted) {
-                      Alert.alert(t('profile.permTitle'), t('profile.permBody'));
-                      return;
-                    }
-                    const res = await ImagePicker.launchImageLibraryAsync({
-                      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                      quality: 0.8,
-                    });
-                    if (!res.canceled && res.assets && res.assets[0]?.uri) {
-                      setSelectedUri(res.assets[0].uri);
+                    const uri = await pickBodyPhoto();
+                    if (uri) {
+                      setSelectedUri(uri);
                       toast(t('profile.photoPicked'));
                     }
                   }}
@@ -282,7 +409,7 @@ export default function ProfileScreen() {
               {!selectedUri && (
                 <View style={[styles.photoActions, { marginTop: 4 }]}>
                   <TouchableOpacity
-                    style={[styles.pbEmptyButton, styles.secondaryButton]}
+                    style={[styles.pbEmptyButton, styles.secondaryButton, styles.fullWidthButton]}
                     onPress={() => {
                       Haptics.selectionAsync();
                       router.push('/body-photos');
@@ -293,7 +420,8 @@ export default function ProfileScreen() {
                 </View>
               )}
             </View>
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -312,13 +440,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   container: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxxl,
   },
 
   headerCard: {
-    marginBottom: 12,
+    marginBottom: layout.sectionGapLg,
+    borderRadius: 20,
   },
   headerRow: {
     flexDirection: 'row',
@@ -326,27 +455,21 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 10,
   },
+  profileHeaderText: {
+    flex: 1,
+  },
   avatarCircle: {
-    width: 46,
-    height: 46,
+    width: 52,
+    height: 52,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  nameText: {
-    ...typography.title,
-    color: colors.textMain,
-  },
-  subtitleText: {
-    ...typography.caption,
-    color: colors.textSoft,
-    marginTop: 2,
+    borderColor: colors.cardBorder,
   },
   langRow: {
-    marginTop: 12,
+    marginTop: 10,
     gap: 6,
   },
   langLabel: {
@@ -356,18 +479,26 @@ const styles = StyleSheet.create({
   langButtons: {
     flexDirection: 'row',
     gap: 8,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 4,
   },
   langButton: {
-    borderRadius: 999,
-    paddingVertical: 8,
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 9,
     paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
   },
   langButtonActive: {
     borderColor: colors.primary,
-    backgroundColor: '#1e1b4b',
+    backgroundColor: colors.primarySoft,
   },
   langButtonText: {
     ...typography.caption,
@@ -380,16 +511,16 @@ const styles = StyleSheet.create({
   headerStatsRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 4,
+    marginTop: 8,
   },
   headerStatBox: {
     flex: 1,
     borderRadius: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 10,
-    backgroundColor: colors.backgroundSoft,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   headerStatLabel: {
     ...typography.micro,
@@ -402,7 +533,8 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    marginBottom: 12,
+    marginBottom: layout.sectionGap,
+    borderRadius: 18,
   },
   cardTitleRow: {
     flexDirection: 'row',
@@ -417,33 +549,29 @@ const styles = StyleSheet.create({
   sectionSub: {
     ...typography.caption,
     color: colors.textSoft,
-    marginBottom: 8,
-  },
-  bodyPhotoButton: {
-    marginTop: 4,
-    borderRadius: 999,
-    backgroundColor: colors.accentBlue,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  bodyPhotoButtonText: {
-    ...typography.bodyBold,
-    color: '#0b1220',
-    fontSize: 13,
+    marginBottom: 10,
   },
   photoInputs: {
     gap: 8,
-    marginTop: 6,
+    marginTop: 4,
   },
   photoInput: {
-    backgroundColor: colors.backgroundSoft,
-    borderRadius: 12,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     fontSize: 13,
+  },
+  inputFocused: {
+    borderColor: colors.primaryBright,
+    shadowColor: colors.primaryBright,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
   photoNote: {
     minHeight: 50,
@@ -453,7 +581,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   photoPreviewImage: {
     width: '100%',
@@ -464,9 +592,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 6,
     right: 10,
-    color: '#e5e7eb',
+    color: colors.textMain,
     fontSize: 11,
-    backgroundColor: '#00000066',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
@@ -475,17 +603,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  emptyText: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  pbEmpty: {
-    gap: 8,
-  },
-  pbEmptyActions: {
+  photoActionsSingle: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
+    marginTop: 2,
   },
   pbEmptyButton: {
     flex: 1,
@@ -494,7 +614,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
+  },
+  fullWidthButton: {
+    flex: 1,
   },
   pbEmptyButtonText: {
     ...typography.caption,
@@ -503,12 +626,12 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: 'transparent',
-    borderColor: '#334155',
+    borderColor: colors.cardBorder,
   },
 
   goalRow: {
-    marginTop: 4,
-    marginBottom: 6,
+    marginTop: 2,
+    marginBottom: 8,
   },
   goalLabel: {
     color: colors.textMuted,
@@ -518,163 +641,67 @@ const styles = StyleSheet.create({
   goalInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 8,
+    alignSelf: 'flex-start',
   },
   goalInput: {
-    minWidth: 56,
+    minWidth: 62,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.backgroundSoft,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: inputs.background,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
     textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '800',
   },
   goalSuffix: {
-    color: colors.textMain,
+    color: colors.textMuted,
     fontSize: 13,
+    fontWeight: '700',
+  },
+  goalStepButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+  },
+  goalStepText: {
+    color: colors.textMain,
+    fontSize: 16,
+    fontWeight: '800',
   },
   goalHint: {
     color: colors.textSoft,
     fontSize: 11,
     marginTop: 2,
   },
-
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 10,
-  },
-  settingLabel: {
-    color: colors.textMain,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  settingSub: {
-    color: colors.textSoft,
+  syncErrorInline: {
+    color: colors.accent,
     fontSize: 11,
-    marginTop: 2,
+    marginTop: -4,
+    marginBottom: layout.sectionGap,
   },
-  themePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: colors.backgroundSoft,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  themePillText: {
-    color: colors.textMain,
+  goalErrorText: {
+    color: colors.accent,
     fontSize: 12,
-  },
-
-  bulletRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-    marginTop: 6,
-  },
-  bulletDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: colors.accentBlue,
-    marginTop: 5,
-  },
-  bulletText: {
-    color: colors.textSoft,
-    fontSize: 11,
-  },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  quickChip: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: colors.backgroundSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    flexDirection: 'row',
-  },
-  quickChipPrimary: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    flexDirection: 'row',
-  },
-  quickChipText: {
-    ...typography.caption,
-    color: colors.textMain,
-    fontWeight: '700',
-  },
-  quickChipTextDark: {
-    ...typography.caption,
-    color: '#0b1024',
-    fontWeight: '800',
-  },
-  latestBox: {
-    marginTop: 6,
-    gap: 8,
-  },
-  latestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  latestDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-  },
-  latestTitle: {
-    ...typography.bodyBold,
-    color: colors.textMain,
-    fontSize: 14,
-  },
-  latestMeta: {
-    color: colors.textSoft,
-    fontSize: 11,
-  },
-  todayButtonsRow: {
-    flexDirection: 'row',
-    gap: 8,
     marginTop: 4,
   },
-  buttonSmall: {
-    flex: 1,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
+  linkActions: {
+    gap: 8,
   },
   primaryButton: {
     backgroundColor: colors.primary,
-  },
-  outlineButton: {
-    borderWidth: 1,
-    borderColor: '#4b5563',
-    backgroundColor: 'transparent',
-  },
-  buttonSmallText: {
-    color: colors.textMain,
-    fontWeight: '700',
-    fontSize: 12,
   },
 });

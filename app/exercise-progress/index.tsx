@@ -8,11 +8,12 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  SafeAreaView,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
-import { colors, gradients, typography } from '../../constants/theme';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import { colors, gradients, layout, radii, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import EmptyState from '../../components/ui/EmptyState';
@@ -121,16 +122,15 @@ export default function ExerciseProgressListScreen() {
         <View style={styles.backRow}>
           <BackPill onPress={() => router.back()} />
         </View>
-        <Text style={styles.title}>
-          {muscleFilter
-            ? `${t('exerciseProgress.title')} · ${muscleFilter}`
-            : t('exerciseProgress.title')}
-        </Text>
-        <Text style={styles.subtitle}>
-          {muscleFilter
-            ? t('exerciseProgress.subtitle')
-            : t('exerciseProgress.subtitle')}
-        </Text>
+        <ScreenHeader
+          title={
+            muscleFilter
+              ? `${t('exerciseProgress.title')} · ${muscleFilter}`
+              : t('exerciseProgress.title')
+          }
+          subtitle={t('exerciseProgress.subtitle')}
+          tone="green"
+        />
 
         {summaries.length === 0 ? (
           <EmptyState
@@ -158,7 +158,7 @@ export default function ExerciseProgressListScreen() {
                     params: { name: ex.name },
                   })
                 }
-                accessibilityLabel={`Visa historik för ${ex.name}`}
+                accessibilityLabel={t('exerciseProgress.openHistoryA11y', undefined, ex.name)}
                 accessibilityRole="button"
               >
               <View style={styles.cardHeader}>
@@ -207,7 +207,7 @@ export default function ExerciseProgressListScreen() {
                 <ExerciseSparkline history={ex.history} />
 
                 <Text style={styles.tapHint}>
-                  Tryck för att se full historik för denna övning →
+                  {t('exerciseProgress.tapHint')}
                 </Text>
               </TouchableOpacity>
             </GlassCard>
@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   card: {
-    marginTop: 10,
+    marginTop: layout.sectionGap,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -290,11 +290,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     minWidth: 130,
     backgroundColor: '#020617',
-    borderRadius: 12,
+    borderRadius: radii.button,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: '#334155',
   },
   pillLabel: {
     ...typography.micro,
@@ -339,9 +339,9 @@ const styles = StyleSheet.create({
   tag: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#334155',
     backgroundColor: '#0b1220',
   },
   tagText: {
@@ -352,9 +352,9 @@ const styles = StyleSheet.create({
   sparkContainer: {
     marginTop: 12,
     padding: 10,
-    borderRadius: 14,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#334155',
     backgroundColor: '#0b1220',
   },
   sparkHeader: {

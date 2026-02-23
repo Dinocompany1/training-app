@@ -1,19 +1,22 @@
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  SafeAreaView,
   Alert,
   FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import GlassCard from '../../components/ui/GlassCard';
+import ScreenHeader from '../../components/ui/ScreenHeader';
 import SkeletonCard from '../../components/ui/SkeletonCard';
-import { colors } from '../../constants/theme';
+import BackPill from '../../components/ui/BackPill';
+import { colors, gradients, radii, typography } from '../../constants/theme';
 import { toast } from '../../utils/toast';
 import { formatDateLong, parseISODate } from '../../utils/date';
 import { useTranslation } from '../../context/TranslationContext';
@@ -25,7 +28,7 @@ export default function HistoryScreen() {
 
   const handleStart = (item: typeof sorted[number]) => {
     Haptics.selectionAsync();
-    router.replace({
+    router.push({
       pathname: '/workout/quick-workout',
       params: {
         title: item.title,
@@ -44,18 +47,17 @@ export default function HistoryScreen() {
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           removeWorkout(item.id);
-          toast(t('history.deletedToast'));
-          Alert.alert(t('history.deletedTitle'), t('history.deletedBody'), [
-            {
-              text: t('common.undo'),
-              style: 'default',
+          toast({
+            message: t('history.deletedToast'),
+            action: {
+              label: t('common.undo'),
               onPress: () => {
                 Haptics.selectionAsync();
                 addWorkout(item);
+                toast(t('common.restored'));
               },
             },
-            { text: t('common.ok'), style: 'default' },
-          ]);
+          });
         },
       },
     ]);
@@ -101,7 +103,7 @@ export default function HistoryScreen() {
 
           <View style={styles.cardContent}>
             <Text style={styles.workoutTitle}>{item.title}</Text>
-            <Text style={styles.workoutDate}>{dateNice}</Text>
+            <Text style={styles.workoutDate}>{`${dateNice} · ${durationLabel}`}</Text>
             {item.sourceTemplateId ? (
               <View style={styles.templatePill}>
                 <View style={styles.templateDot} />
@@ -135,39 +137,36 @@ export default function HistoryScreen() {
                   {t('history.exerciseCount', undefined, item.exercises?.length ?? 0)}
                 </Text>
               </View>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{durationLabel}</Text>
-              </View>
               {!!item.sourceTemplateId && (
                 <TouchableOpacity
-                  style={[styles.badge, styles.startBadge]}
+                  style={[styles.badge, styles.actionSecondary]}
                   onPress={() => handleStart(item)}
                   activeOpacity={0.9}
                   accessibilityLabel={t('history.startRoutineA11y')}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.startBadgeText}>{t('history.startRoutine')}</Text>
+                  <Text style={styles.actionSecondaryText}>{t('history.startRoutine')}</Text>
                 </TouchableOpacity>
               )}
               {!item.isCompleted && (
                 <TouchableOpacity
-                  style={[styles.badge, styles.startBadge]}
+                  style={[styles.badge, styles.actionPrimary]}
                   onPress={() => handleStart(item)}
                   activeOpacity={0.9}
                   accessibilityLabel={t('history.startNowA11y')}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.startBadgeText}>{t('history.startNow')}</Text>
+                  <Text style={styles.actionPrimaryText}>{t('history.startNow')}</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
-                style={[styles.badge, styles.startBadge]}
+                style={[styles.badge, styles.actionDanger]}
                 onPress={() => handleDelete(item)}
                 activeOpacity={0.9}
                 accessibilityLabel={t('history.deleteA11y')}
                 accessibilityRole="button"
               >
-                <Text style={styles.startBadgeText}>{t('common.delete')}</Text>
+                <Text style={styles.actionDangerText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -178,6 +177,7 @@ export default function HistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      <LinearGradient colors={gradients.appBackground} style={StyleSheet.absoluteFill} />
       <FlatList
         data={sorted}
         keyExtractor={(item) => item.id}
@@ -185,18 +185,26 @@ export default function HistoryScreen() {
         renderItem={renderItem}
         ListHeaderComponent={() => (
           <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>{t('history.title')}</Text>
-              <Text style={styles.subtitle}>
-                {t('history.subtitle')}
-              </Text>
+            <View style={styles.headerTop}>
+              <BackPill onPress={() => router.back()} />
             </View>
-            {sorted.length > 0 && (
-              <View style={styles.countBadge}>
-                <Text style={styles.countText}>{sorted.length}</Text>
-                <Text style={styles.countLabel}>{t('history.countLabel')}</Text>
+            <View style={styles.headerMain}>
+              <View>
+                <ScreenHeader
+                  title={t('history.title')}
+                  subtitle={t('history.subtitle')}
+                  compact
+                  tone="blue"
+                  style={styles.headerTitle}
+                />
               </View>
-            )}
+              {sorted.length > 0 && (
+                <View style={styles.countBadge}>
+                  <Text style={styles.countText}>{sorted.length}</Text>
+                  <Text style={styles.countLabel}>{t('history.countLabel')}</Text>
+                </View>
+              )}
+            </View>
           </View>
         )}
         ListEmptyComponent={() => (
@@ -224,32 +232,40 @@ export default function HistoryScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#050816',
+    backgroundColor: colors.background,
   },
   container: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 24,
   },
   header: {
+    marginBottom: 16,
+  },
+  headerTop: {
+    paddingBottom: 6,
+  },
+  headerMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+  },
+  headerTitle: {
+    marginBottom: 0,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
+    ...typography.display,
     color: '#fff',
   },
   subtitle: {
-    fontSize: 13,
+    ...typography.caption,
     color: '#9ca3af',
     marginTop: 2,
   },
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 84,
   },
   countBadge: {
     alignItems: 'flex-end',
@@ -272,21 +288,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 15,
-    fontWeight: '600',
+    ...typography.bodyBold,
     color: '#e5e7eb',
     marginBottom: 4,
   },
   emptyText: {
-    fontSize: 13,
+    ...typography.caption,
     color: '#9ca3af',
   },
   card: {
     marginBottom: 10,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
   },
   iconCircle: {
     width: 40,
@@ -297,10 +308,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
     borderWidth: 1,
-    borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.45,
-    shadowRadius: 8,
+    borderColor: '#334155',
   },
   iconText: {
     color: '#e5e7eb',
@@ -311,17 +319,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   workoutTitle: {
-    fontSize: 15,
-    fontWeight: '600',
+    ...typography.bodyBold,
     color: '#f9fafb',
   },
   workoutDate: {
-    fontSize: 12,
+    ...typography.caption,
     color: '#9ca3af',
     marginBottom: 2,
   },
   workoutNotes: {
-    fontSize: 12,
+    ...typography.caption,
     color: '#e5e7eb',
   },
   templateBadge: {
@@ -337,7 +344,7 @@ const styles = StyleSheet.create({
     borderColor: '#312e81',
   },
   notesPlaceholder: {
-    fontSize: 12,
+    ...typography.caption,
     color: '#6b7280',
     fontStyle: 'italic',
   },
@@ -345,14 +352,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: '#111827',
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: '#334155',
     marginTop: 6,
   },
   badgeText: {
     fontSize: 11,
-    color: colors.primary,
+    color: colors.textSoft,
     fontWeight: '600',
   },
   badgeTextDark: {
@@ -370,23 +377,37 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   statusBadgeDone: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#14532d',
+    borderColor: '#22c55e',
   },
   statusBadgePlanned: {
     backgroundColor: '#0b1220',
-    borderColor: colors.primary,
+    borderColor: '#334155',
   },
-  startBadge: {
-    borderColor: colors.primary,
-    backgroundColor: '#0b1220',
-    shadowColor: colors.primary,
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
+  actionPrimary: {
+    borderColor: '#60a5fa',
+    backgroundColor: '#2563eb',
   },
-  startBadgeText: {
-    color: colors.primary,
+  actionPrimaryText: {
+    color: '#f8fafc',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  actionSecondary: {
+    borderColor: '#475569',
+    backgroundColor: '#0f172a',
+  },
+  actionSecondaryText: {
+    color: colors.textMain,
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  actionDanger: {
+    borderColor: '#f87171',
+    backgroundColor: '#2b1116',
+  },
+  actionDangerText: {
+    color: '#fecaca',
     fontWeight: '700',
     fontSize: 11,
   },

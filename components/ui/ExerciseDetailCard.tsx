@@ -1,11 +1,12 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { colors } from '../../constants/theme';
+import { colors, radii, typography } from '../../constants/theme';
 import { useTranslation } from '../../context/TranslationContext';
 
-export type DetailSet = { reps: string; weight: number | string };
+export type DetailSet = { reps: string; weight: number | string; done?: boolean; setId?: string };
 
 type Props = {
+  exerciseId?: string;
   name: string;
   muscleGroups?: string[];
   currentMuscle?: string;
@@ -13,9 +14,13 @@ type Props = {
   sets: DetailSet[];
   onChangeSet: (index: number, field: 'reps' | 'weight', value: string) => void;
   onAddSet: () => void;
+  onCompleteSet?: (index: number) => void;
+  focusTargetKey?: string | null;
+  onFocusHandled?: () => void;
 };
 
 export default function ExerciseDetailCard({
+  exerciseId,
   name,
   muscleGroups = [],
   currentMuscle,
@@ -23,8 +28,23 @@ export default function ExerciseDetailCard({
   sets,
   onChangeSet,
   onAddSet,
+  onCompleteSet,
+  focusTargetKey,
+  onFocusHandled,
 }: Props) {
   const { t } = useTranslation();
+  const inputRefs = React.useRef<Record<string, TextInput | null>>({});
+
+  React.useEffect(() => {
+    if (!focusTargetKey) return;
+    const input = inputRefs.current[focusTargetKey];
+    if (!input) return;
+    const id = setTimeout(() => {
+      input.focus();
+      onFocusHandled?.();
+    }, 30);
+    return () => clearTimeout(id);
+  }, [focusTargetKey, onFocusHandled]);
 
   return (
     <View style={styles.card}>
@@ -56,7 +76,21 @@ export default function ExerciseDetailCard({
       <View style={styles.setList}>
         {sets.map((setItem, idx) => (
           <View key={`${name}-set-${idx}`} style={styles.setRow}>
-            <Text style={styles.setLabel}>{t('workoutDetail.setLabel', undefined, idx + 1)}</Text>
+            <View style={styles.setHeader}>
+              <Text style={styles.setLabel}>{t('workoutDetail.setLabel', undefined, idx + 1)}</Text>
+              {onCompleteSet ? (
+                <TouchableOpacity
+                  style={[styles.setDonePill, setItem.done && styles.setDonePillActive]}
+                  onPress={() => onCompleteSet(idx)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('quick.setDoneA11y', undefined, idx + 1)}
+                >
+                  <Text style={[styles.setDoneText, setItem.done && styles.setDoneTextActive]}>
+                    {t('quick.setDone')}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             <View style={styles.setInputs}>
               <View style={styles.detailInputGroup}>
                 <Text style={styles.detailLabel}>{t('exerciseDetail.reps')}</Text>
@@ -65,6 +99,10 @@ export default function ExerciseDetailCard({
                   keyboardType="numeric"
                   value={String(setItem.reps)}
                   onChangeText={(v) => onChangeSet(idx, 'reps', v)}
+                  ref={(ref) => {
+                    if (!exerciseId || !setItem.setId) return;
+                    inputRefs.current[`${exerciseId}:${setItem.setId}:reps`] = ref;
+                  }}
                 />
               </View>
               <View style={styles.detailInputGroup}>
@@ -74,6 +112,10 @@ export default function ExerciseDetailCard({
                   keyboardType="numeric"
                   value={String(setItem.weight)}
                   onChangeText={(v) => onChangeSet(idx, 'weight', v)}
+                  ref={(ref) => {
+                    if (!exerciseId || !setItem.setId) return;
+                    inputRefs.current[`${exerciseId}:${setItem.setId}:weight`] = ref;
+                  }}
                 />
               </View>
             </View>
@@ -98,10 +140,10 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingVertical: 10,
     paddingHorizontal: 10,
-    borderRadius: 14,
-    backgroundColor: '#020617',
+    borderRadius: radii.card,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   headerRow: {
     flexDirection: 'row',
@@ -109,11 +151,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
-  name: {
-    color: colors.textMain,
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  name: { ...typography.bodyBold, color: colors.textMain },
   muscleRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -126,20 +164,19 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
   },
   muscleChipActive: {
     borderColor: colors.primary,
-    backgroundColor: '#14532d',
+    backgroundColor: colors.primarySoft,
   },
   muscleChipText: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
-    fontWeight: '600',
   },
   muscleChipTextActive: {
-    color: '#bbf7d0',
+    color: colors.textMain,
     fontWeight: '700',
   },
   setList: {
@@ -147,16 +184,43 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   setRow: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     borderRadius: 12,
     padding: 10,
     gap: 6,
   },
+  setHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   setLabel: {
+    ...typography.caption,
     color: colors.textSoft,
-    fontSize: 12,
+  },
+  setDonePill: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setDonePillActive: {
+    borderColor: colors.success,
+    backgroundColor: colors.primarySoft,
+  },
+  setDoneText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  setDoneTextActive: {
+    color: colors.textMain,
   },
   setInputs: {
     flexDirection: 'row',
@@ -166,18 +230,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   detailLabel: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
     marginBottom: 2,
   },
   detailInput: {
-    backgroundColor: '#020617',
+    backgroundColor: colors.surface,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    color: 'white',
+    color: colors.textMain,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     fontSize: 12,
   },
   addSetButton: {
@@ -185,7 +249,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.primary,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.primarySoft,
     paddingVertical: 10,
     paddingHorizontal: 12,
     alignItems: 'center',

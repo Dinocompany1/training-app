@@ -1,7 +1,8 @@
 // context/WorkoutsContext.tsx
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, {
+  useCallback,
   createContext,
   ReactNode,
   useContext,
@@ -33,6 +34,9 @@ export interface Workout {
   id: string;
   title: string;
   date: string;          // YYYY-MM-DD
+  createdAt?: string;    // ISO datetime
+  updatedAt?: string;    // ISO datetime
+  completedAt?: string;  // ISO datetime
   notes?: string;
   exercises?: Exercise[];
   color?: string;        // färg för passet (push/pull/ben)
@@ -103,6 +107,10 @@ interface WorkoutsContextValue {
 
   // Export / backup
   exportData: () => Promise<string | null>;
+  syncStatus: 'idle' | 'saving' | 'error';
+  lastSyncedAt: string | null;
+  syncErrorMessage: string | null;
+  cloudSyncStatus: 'off' | 'inactive' | 'active' | 'error';
 }
 
 const WorkoutsContext = createContext<WorkoutsContextValue | undefined>(
@@ -116,6 +124,7 @@ const DATA_VERSION = 1;
 const ASYNC_KEY = 'workouts-data';
 type PersistedData = {
   version: number;
+  updatedAt?: string;
   data: {
     workouts: Workout[];
     templates: Template[];
@@ -130,6 +139,47 @@ type StorageAdapter = {
   save: (payload: PersistedData) => Promise<void>;
   exportData: (payload: PersistedData) => Promise<string | null>;
 };
+const CLOUD_ROW_SUFFIX = 'app-state';
+
+const toIsoFallbackFromDate = (date?: string): string => {
+  if (!date) return new Date(0).toISOString();
+  const direct = Date.parse(`${date}T12:00:00.000Z`);
+  if (Number.isFinite(direct)) return new Date(direct).toISOString();
+  const plain = Date.parse(date);
+  if (Number.isFinite(plain)) return new Date(plain).toISOString();
+  return new Date(0).toISOString();
+};
+
+const isValidIsoTimestamp = (value?: string): boolean =>
+  Boolean(value && Number.isFinite(Date.parse(value)));
+
+const workoutTimestampMs = (workout: Workout): number => {
+  const candidates = [workout.completedAt, workout.updatedAt, workout.createdAt]
+    .map((value) => (value ? Date.parse(value) : NaN))
+    .filter((value) => Number.isFinite(value)) as number[];
+  if (candidates.length > 0) return Math.max(...candidates);
+  return Date.parse(toIsoFallbackFromDate(workout.date));
+};
+
+const derivePayloadUpdatedAt = (payload: PersistedData): string => {
+  const latestWorkoutTs = (payload.data.workouts || []).reduce((max, workout) => {
+    const ts = workoutTimestampMs(workout);
+    return ts > max ? ts : max;
+  }, 0);
+  return new Date(latestWorkoutTs || Date.now()).toISOString();
+};
+
+const withUpdatedAt = (payload: PersistedData, options?: { touch?: boolean }): PersistedData => {
+  const updatedAt = options?.touch
+    ? new Date().toISOString()
+    : isValidIsoTimestamp(payload.updatedAt)
+      ? payload.updatedAt
+      : derivePayloadUpdatedAt(payload);
+  return {
+    ...payload,
+    updatedAt,
+  };
+};
 
 export function WorkoutsProvider({ children }: { children: ReactNode }) {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
@@ -138,18 +188,45 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
   const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [customExercises, setCustomExercises] = useState<CustomExercise[]>([]);
   const [customGroups, setCustomGroups] = useState<string[]>([]);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'off' | 'inactive' | 'active' | 'error'>(
+    supabase ? 'inactive' : 'off'
+  );
   const [loaded, setLoaded] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasSkippedInitialAutosave = useRef(false);
 
   // ===== Pass =====
   const addWorkout = (workout: Workout) => {
-    setWorkouts((prev) => [...prev, workout]);
+    const now = new Date().toISOString();
+    setWorkouts((prev) => [
+      ...prev,
+      {
+        ...workout,
+        createdAt: workout.createdAt || now,
+        updatedAt: now,
+        completedAt: workout.isCompleted ? workout.completedAt || now : workout.completedAt,
+      },
+    ]);
   };
 
   const updateWorkout = (workout: Workout) => {
+    const now = new Date().toISOString();
     setWorkouts((prev) =>
-      prev.map((w) => (w.id === workout.id ? workout : w))
+      prev.map((w) => {
+        if (w.id !== workout.id) return w;
+        return {
+          ...workout,
+          createdAt: workout.createdAt || w.createdAt || now,
+          updatedAt: now,
+          completedAt:
+            workout.isCompleted
+              ? workout.completedAt || w.completedAt || now
+              : workout.completedAt || w.completedAt,
+        };
+      })
     );
   };
 
@@ -229,9 +306,9 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
           const content = await FileSystem.readAsStringAsync(STORAGE_PATH);
           const parsed = JSON.parse(content) as PersistedData | any;
           if (!parsed) return null;
-          if (parsed.data) return parsed as PersistedData;
+          if (parsed.data) return withUpdatedAt(parsed as PersistedData);
           // fallback om ingen wrapper
-          return {
+          return withUpdatedAt({
             version: 0,
             data: {
               workouts: parsed.workouts || [],
@@ -239,7 +316,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
               bodyPhotos: parsed.bodyPhotos || [],
               weeklyGoal: parsed.weeklyGoal ?? 3,
             },
-          };
+          });
         } catch (err) {
           console.warn('Kunde inte läsa träningsdata', err);
           try {
@@ -250,7 +327,7 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
             const backupContent = await FileSystem.readAsStringAsync(
               `${BACKUP_DIR}/latest-backup.json`
             );
-            return JSON.parse(backupContent) as PersistedData;
+            return withUpdatedAt(JSON.parse(backupContent) as PersistedData);
           } catch (backupErr) {
             console.warn('Kunde inte läsa backup-data', backupErr);
             return null;
@@ -258,7 +335,8 @@ export function WorkoutsProvider({ children }: { children: ReactNode }) {
         }
       },
       save: async (payload: PersistedData) => {
-        const json = JSON.stringify(payload);
+        const hydratedPayload = withUpdatedAt(payload);
+        const json = JSON.stringify(hydratedPayload);
         await FileSystem.makeDirectoryAsync(BACKUP_DIR, {
           intermediates: true,
         });
@@ -294,8 +372,8 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
           if (!raw) return null;
           const parsed = JSON.parse(raw) as PersistedData | any;
           if (!parsed) return null;
-          if (parsed.data) return parsed as PersistedData;
-          return {
+          if (parsed.data) return withUpdatedAt(parsed as PersistedData);
+          return withUpdatedAt({
             version: 0,
             data: {
               workouts: parsed.workouts || [],
@@ -305,7 +383,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
               customExercises: parsed.customExercises || [],
               customGroups: parsed.customGroups || [],
             },
-          };
+          });
         } catch (err) {
           console.warn('AsyncStorage load fail', err);
           return null;
@@ -313,13 +391,13 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
       },
       save: async (payload: PersistedData) => {
         try {
-          await AsyncStorage.setItem(ASYNC_KEY, JSON.stringify(payload));
+          await AsyncStorage.setItem(ASYNC_KEY, JSON.stringify(withUpdatedAt(payload)));
         } catch (err) {
           throw err;
         }
       },
       exportData: async (payload: PersistedData) =>
-        JSON.stringify(payload.data, null, 2),
+        JSON.stringify(withUpdatedAt(payload).data, null, 2),
     }),
     []
   );
@@ -327,35 +405,63 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
   const supabaseStorageAdapter: StorageAdapter | null = useMemo(() => {
     const sb = supabase;
     if (!sb) return null;
+    const getCloudRowId = async () => {
+      const { data, error } = await sb.auth.getUser();
+      if (error) {
+        console.warn('Supabase auth error', error);
+        setCloudSyncStatus('error');
+        return null;
+      }
+      const uid = data.user?.id;
+      if (!uid) {
+        setCloudSyncStatus('inactive');
+        return null;
+      }
+      setCloudSyncStatus('active');
+      return `${uid}:${CLOUD_ROW_SUFFIX}`;
+    };
     return {
       load: async () => {
+        const rowId = await getCloudRowId();
+        if (!rowId) return null;
         const { data, error } = await sb
           .from('app_state')
           .select('version,data')
-          .eq('id', 'default')
+          .eq('id', rowId)
           .maybeSingle();
         if (error) {
           console.warn('Supabase load error', error);
+          setCloudSyncStatus('error');
           return null;
         }
         if (!data) return null;
-        return {
+        const cloudPayload = data.data;
+        if (cloudPayload && typeof cloudPayload === 'object' && 'data' in cloudPayload) {
+          return withUpdatedAt(cloudPayload as PersistedData);
+        }
+        return withUpdatedAt({
           version: data.version ?? 0,
-          data: data.data as PersistedData['data'],
-        };
+          data: (cloudPayload || {}) as PersistedData['data'],
+        });
       },
       save: async (payload: PersistedData) => {
+        const hydratedPayload = withUpdatedAt(payload);
+        const rowId = await getCloudRowId();
+        if (!rowId) return;
         const { error } = await sb
           .from('app_state')
           .upsert({
-            id: 'default',
-            version: payload.version,
-            data: payload.data,
+            id: rowId,
+            version: hydratedPayload.version,
+            data: hydratedPayload,
           });
-        if (error) throw error;
+        if (error) {
+          setCloudSyncStatus('error');
+          throw error;
+        }
       },
       exportData: async (payload: PersistedData) =>
-        JSON.stringify(payload.data, null, 2),
+        JSON.stringify(withUpdatedAt(payload).data, null, 2),
     };
   }, []);
 
@@ -363,6 +469,33 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
   const primaryAdapter: StorageAdapter = asyncStorageAdapter;
   const secondaryAdapter: StorageAdapter | null = fileStorageAdapter;
   const cloudAdapter: StorageAdapter | null = supabaseStorageAdapter;
+  const activeAdapters = useMemo(
+    () => [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[],
+    [primaryAdapter, secondaryAdapter, cloudAdapter]
+  );
+
+  const saveToAdapters = useCallback(
+    async (payload: PersistedData, options?: { silent?: boolean }) => {
+      if (!options?.silent) setSyncStatus('saving');
+      const hydratedPayload = withUpdatedAt(payload, { touch: true });
+      const results = await Promise.allSettled(
+        activeAdapters.map((adapter) => adapter.save(hydratedPayload))
+      );
+      const failures = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+      if (failures.length > 0) {
+        const firstReason = failures[0]?.reason;
+        const reasonText =
+          firstReason instanceof Error ? firstReason.message : String(firstReason || '');
+        setSyncStatus('error');
+        setSyncErrorMessage(reasonText || 'Unknown sync error');
+        return;
+      }
+      setSyncStatus('idle');
+      setSyncErrorMessage(null);
+      setLastSyncedAt(new Date().toISOString());
+    },
+    [activeAdapters]
+  );
 
   const migrateData = (data: PersistedData['data']): PersistedData['data'] => {
     const normalizeMuscle = (mg?: string) => {
@@ -398,10 +531,19 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
           imageUri: ex.imageUri,
         }))
         .filter((ex) => !!ex.name);
-    const cleanWorkouts = (data.workouts || []).map((w) => ({
-      ...w,
-      exercises: sanitizeExercises(w.exercises),
-    }));
+    const cleanWorkouts = (data.workouts || []).map((w) => {
+      const fallbackTimestamp = toIsoFallbackFromDate(w.date);
+      const createdAt = w.createdAt || fallbackTimestamp;
+      const updatedAt = w.updatedAt || w.completedAt || createdAt;
+      const completedAt = w.isCompleted ? w.completedAt || updatedAt : w.completedAt;
+      return {
+        ...w,
+        createdAt,
+        updatedAt,
+        completedAt,
+        exercises: sanitizeExercises(w.exercises),
+      };
+    });
     const cleanTemplates = (data.templates || []).map((t) => ({
       ...t,
       exercises: sanitizeExercises(t.exercises as any),
@@ -425,26 +567,33 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
-      let persisted = null;
+      const candidates: PersistedData[] = [];
       try {
-        persisted = await primaryAdapter.load();
+        const fromPrimary = await primaryAdapter.load();
+        if (fromPrimary) candidates.push(withUpdatedAt(fromPrimary));
       } catch (err) {
         console.warn('Load primary failed', err);
       }
-      if (!persisted && secondaryAdapter) {
+      if (secondaryAdapter) {
         try {
-          persisted = await secondaryAdapter.load();
+          const fromSecondary = await secondaryAdapter.load();
+          if (fromSecondary) candidates.push(withUpdatedAt(fromSecondary));
         } catch (err) {
           console.warn('Load secondary failed', err);
         }
       }
-      if (!persisted && cloudAdapter) {
+      if (cloudAdapter) {
         try {
-          persisted = await cloudAdapter.load();
+          const fromCloud = await cloudAdapter.load();
+          if (fromCloud) candidates.push(withUpdatedAt(fromCloud));
         } catch (err) {
           console.warn('Load cloud failed', err);
         }
       }
+      const persisted =
+        candidates.length > 0
+          ? candidates.sort((a, b) => Date.parse(derivePayloadUpdatedAt(b)) - Date.parse(derivePayloadUpdatedAt(a)))[0]
+          : null;
 
       if (!persisted) {
         if (isMounted) setLoaded(true);
@@ -460,17 +609,11 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         setCustomExercises(migrated.customExercises || []);
         setCustomGroups(migrated.customGroups || []);
         // skriv tillbaka migrerat innehåll så filen är ren inför framtida laddningar
-        const payload: PersistedData = {
+        const payload: PersistedData = withUpdatedAt({
           version: DATA_VERSION,
           data: migrated,
-        };
-        const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
-        for (const ad of adapters) {
-          try {
-            await ad.save(payload);
-          } catch {
-          }
-        }
+        });
+        await saveToAdapters(payload, { silent: true });
       } catch (err) {
         console.warn('Kunde inte migrera träningsdata', err);
         toast('Data kunde inte läsas (korrupt?).');
@@ -482,7 +625,7 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
     return () => {
       isMounted = false;
     };
-  }, [primaryAdapter, secondaryAdapter]);
+  }, [primaryAdapter, secondaryAdapter, cloudAdapter, saveToAdapters]);
 
   // Spara
   useEffect(() => {
@@ -499,15 +642,13 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
     saveTimeout.current = setTimeout(() => {
       const save = async () => {
         try {
-          const payload: PersistedData = {
+          const payload: PersistedData = withUpdatedAt({
             version: DATA_VERSION,
             data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
-          };
-          const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
-          for (const ad of adapters) {
-            await ad.save(payload);
-          }
-        } catch {
+          });
+          await saveToAdapters(payload);
+        } catch (saveErr) {
+          console.warn('Autosave misslyckades', saveErr);
         }
       };
       save();
@@ -518,28 +659,26 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         clearTimeout(saveTimeout.current);
       }
     };
-  }, [workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups, primaryAdapter, secondaryAdapter, cloudAdapter, loaded]);
+  }, [workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups, primaryAdapter, secondaryAdapter, cloudAdapter, loaded, saveToAdapters]);
 
   const exportData = async () => {
-    const payload: PersistedData = {
+    const payload: PersistedData = withUpdatedAt({
       version: DATA_VERSION,
       data: { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
-    };
+    });
     return primaryAdapter.exportData(payload);
   };
 
   const forceSave = async (override?: PersistedData['data']) => {
-    const payload: PersistedData = {
+    const payload: PersistedData = withUpdatedAt({
       version: DATA_VERSION,
       data:
         override ?? { workouts, templates, bodyPhotos, weeklyGoal, customExercises, customGroups },
-    };
+    });
     try {
-      const adapters = [primaryAdapter, secondaryAdapter, cloudAdapter].filter(Boolean) as StorageAdapter[];
-      for (const ad of adapters) {
-        await ad.save(payload);
-      }
-    } catch {
+      await saveToAdapters(payload);
+    } catch (saveErr) {
+      console.warn('Force save misslyckades', saveErr);
     }
   };
 
@@ -565,6 +704,10 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
     weeklyGoal,
     setWeeklyGoal,
     exportData,
+    syncStatus,
+    lastSyncedAt,
+    syncErrorMessage,
+    cloudSyncStatus,
   };
 
   return (

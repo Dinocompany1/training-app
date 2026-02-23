@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { Animated, StyleSheet, ViewStyle } from 'react-native';
+import { colors } from '../../constants/theme';
 
 type Props = {
   height?: number;
@@ -7,24 +8,45 @@ type Props = {
 };
 
 export default function SkeletonCard({ height = 90, style }: Props) {
+  const opacity = React.useRef(new Animated.Value(0.45)).current;
+
+  React.useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.75,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: 650,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
   return (
-    <View style={[styles.card, { height }, style]}>
-      <View style={[styles.shimmer]} />
-    </View>
+    <Animated.View style={[styles.card, { height }, style]}>
+      <Animated.View style={[styles.shimmer, { opacity }]} />
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
     borderRadius: 16,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     marginBottom: 10,
   },
   shimmer: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
   },
 });

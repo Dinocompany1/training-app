@@ -1,25 +1,31 @@
 // app/all-exercises.tsx
 import { LinearGradient } from 'expo-linear-gradient';
-import { Dumbbell, Trash2, MoveRight } from 'lucide-react-native';
-import React, { useMemo, useState } from 'react';
+import { Dumbbell, Trash2, MoveRight, Star } from 'lucide-react-native';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-  Alert,
-  SafeAreaView,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../components/ui/GlassCard';
 import EmptyState from '../components/ui/EmptyState';
-import { colors, gradients, typography } from '../constants/theme';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { colors, gradients, inputs, layout, spacing, typography } from '../constants/theme';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import { useWorkouts } from '../context/WorkoutsContext';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
 import { translateExerciseGroup, translateExerciseName } from '../utils/exerciseTranslations';
+import { toast } from '../utils/toast';
+import storage from '../utils/safeStorage';
+import { sortWorkoutsByRecencyDesc } from '../utils/workoutRecency';
+
+const LIBRARY_FAVORITES_KEY = 'library-favorites-v1';
+type SortMode = 'recent' | 'mostUsed' | 'az';
 
 export default function AllExercisesScreen() {
   const {
@@ -29,13 +35,14 @@ export default function AllExercisesScreen() {
     customGroups,
     addCustomGroup,
     removeCustomGroup,
+    workouts,
   } = useWorkouts();
   const [selectedExercises, setSelectedExercises] = useState<
     { name: string; group: string }[]
   >([]);
   const { t } = useTranslation();
-  const translateGroup = (g: string) => translateExerciseGroup(t, g);
-  const translateName = (n: string) => translateExerciseName(t, n);
+  const translateGroup = useCallback((g: string) => translateExerciseGroup(t, g), [t]);
+  const translateName = useCallback((n: string) => translateExerciseName(t, n), [t]);
 
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({
@@ -71,6 +78,10 @@ export default function AllExercisesScreen() {
   const [groupError, setGroupError] = useState('');
   const [exerciseError, setExerciseError] = useState('');
   const [moveGroup, setMoveGroup] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeGroupFilter, setActiveGroupFilter] = useState<'all' | string>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [favoriteKeys, setFavoriteKeys] = useState<string[]>([]);
 
   // Om vald grupp tas bort, rensa valet
   React.useEffect(() => {
@@ -81,6 +92,25 @@ export default function AllExercisesScreen() {
       setMoveGroup('');
     }
   }, [groupNames, newGroup, moveGroup]);
+
+  React.useEffect(() => {
+    storage
+      .getItem(LIBRARY_FAVORITES_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          setFavoriteKeys(parsed.filter((v): v is string => typeof v === 'string'));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    storage.setItem(LIBRARY_FAVORITES_KEY, JSON.stringify(favoriteKeys)).catch(() => {});
+  }, [favoriteKeys]);
+
+  const toExerciseKey = useCallback((name: string, group: string) => `${name.trim().toLowerCase()}::${group.trim().toLowerCase()}`, []);
 
   const handleRemoveGroup = (name: string) => {
     removeCustomGroup(name);
@@ -106,6 +136,107 @@ export default function AllExercisesScreen() {
     });
   };
 
+  const toggleFavorite = (name: string, group: string) => {
+    const key = toExerciseKey(name, group);
+    setFavoriteKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  };
+
+  const latestPerformanceByExercise = useMemo(() => {
+    const map = new Map<string, { reps: string; weight: number; date: string }>();
+    const completed = sortWorkoutsByRecencyDesc((workouts || []).filter((w) => w.isCompleted));
+
+    completed.forEach((workout) => {
+      (workout.exercises || []).forEach((ex) => {
+        const key = ex.name.trim().toLowerCase();
+        if (!key || map.has(key)) return;
+        const firstSet = ex.performedSets?.[0];
+        map.set(key, {
+          reps: firstSet?.reps || ex.reps || '-',
+          weight:
+            firstSet?.weight != null && Number.isFinite(Number(firstSet.weight))
+              ? Number(firstSet.weight)
+              : Number.isFinite(Number(ex.weight))
+              ? Number(ex.weight)
+              : 0,
+          date: workout.date,
+        });
+      });
+    });
+    return map;
+  }, [workouts]);
+
+  const usageStatsByExercise = useMemo(() => {
+    const map = new Map<string, { count: number; lastDate: string }>();
+    const completed = (workouts || []).filter((w) => w.isCompleted);
+    completed.forEach((workout) => {
+      (workout.exercises || []).forEach((ex) => {
+        const key = ex.name.trim().toLowerCase();
+        if (!key) return;
+        const current = map.get(key);
+        if (!current) {
+          map.set(key, { count: 1, lastDate: workout.date });
+          return;
+        }
+        map.set(key, {
+          count: current.count + 1,
+          lastDate: current.lastDate > workout.date ? current.lastDate : workout.date,
+        });
+      });
+    });
+    return map;
+  }, [workouts]);
+
+  const displayGroups = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return mergedLibrary
+      .filter((group) => activeGroupFilter === 'all' || group.group === activeGroupFilter)
+      .map((group) => {
+        const filteredExercises = group.exercises.filter((ex) => {
+          const name = (typeof ex === 'string' ? ex : ex.name) || '';
+          if (!query) return true;
+          return translateName(name).toLowerCase().includes(query) || name.toLowerCase().includes(query);
+        });
+        const sortedExercises = [...filteredExercises].sort((a, b) => {
+          const aName = typeof a === 'string' ? a : a.name;
+          const bName = typeof b === 'string' ? b : b.name;
+          if (sortMode === 'az') {
+            return translateName(aName).localeCompare(translateName(bName), 'sv');
+          }
+          if (sortMode === 'mostUsed') {
+            const aCount = usageStatsByExercise.get(aName.trim().toLowerCase())?.count ?? 0;
+            const bCount = usageStatsByExercise.get(bName.trim().toLowerCase())?.count ?? 0;
+            if (aCount !== bCount) return bCount - aCount;
+            return translateName(aName).localeCompare(translateName(bName), 'sv');
+          }
+          const aDate = usageStatsByExercise.get(aName.trim().toLowerCase())?.lastDate ?? '';
+          const bDate = usageStatsByExercise.get(bName.trim().toLowerCase())?.lastDate ?? '';
+          if (aDate !== bDate) return bDate.localeCompare(aDate);
+          return translateName(aName).localeCompare(translateName(bName), 'sv');
+        });
+        return { ...group, exercises: sortedExercises };
+      })
+      .filter((group) => group.exercises.length > 0 || !searchQuery.trim());
+  }, [mergedLibrary, activeGroupFilter, searchQuery, translateName, sortMode, usageStatsByExercise]);
+
+  const favoriteExercises = useMemo(() => {
+    if (favoriteKeys.length === 0) return [];
+    const query = searchQuery.trim().toLowerCase();
+    const all = mergedLibrary.flatMap((group) =>
+      group.exercises.map((ex) => {
+        const name = typeof ex === 'string' ? ex : ex.name;
+        return { name, group: group.group };
+      })
+    );
+    return all
+      .filter((item) => favoriteKeys.includes(toExerciseKey(item.name, item.group)))
+      .filter((item) => activeGroupFilter === 'all' || item.group === activeGroupFilter)
+      .filter((item) => {
+        if (!query) return true;
+        const translated = translateName(item.name).toLowerCase();
+        return translated.includes(query) || item.name.toLowerCase().includes(query);
+      });
+  }, [favoriteKeys, mergedLibrary, toExerciseKey, activeGroupFilter, searchQuery, translateName]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <LinearGradient
@@ -120,10 +251,149 @@ export default function AllExercisesScreen() {
           contentContainerStyle={{ paddingBottom: 32 }}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.title}>{t('library.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('library.subtitle')}
-          </Text>
+          <ScreenHeader title={t('library.title')} subtitle={t('library.subtitle')} tone="teal" />
+          <GlassCard style={styles.card}>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder={t('library.searchPlaceholder')}
+              placeholderTextColor={colors.textSoft}
+              style={styles.input}
+            />
+            <View style={styles.filterRow}>
+              <TouchableOpacity
+                style={[styles.filterChip, activeGroupFilter === 'all' && styles.filterChipActive]}
+                onPress={() => setActiveGroupFilter('all')}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.filterChipText, activeGroupFilter === 'all' && styles.filterChipTextActive]}>
+                  {t('library.filterAll')}
+                </Text>
+              </TouchableOpacity>
+              {groupNames.map((g) => (
+                <TouchableOpacity
+                  key={`filter-${g}`}
+                  style={[styles.filterChip, activeGroupFilter === g && styles.filterChipActive]}
+                  onPress={() => setActiveGroupFilter(g)}
+                  accessibilityRole="button"
+                >
+                  <Text style={[styles.filterChipText, activeGroupFilter === g && styles.filterChipTextActive]}>
+                    {translateGroup(g)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.sortRow}>
+              <TouchableOpacity
+                style={[styles.sortChip, sortMode === 'recent' && styles.sortChipActive]}
+                onPress={() => setSortMode('recent')}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.sortChipText, sortMode === 'recent' && styles.sortChipTextActive]}>
+                  {t('library.sortRecent')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sortChip, sortMode === 'mostUsed' && styles.sortChipActive]}
+                onPress={() => setSortMode('mostUsed')}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.sortChipText, sortMode === 'mostUsed' && styles.sortChipTextActive]}>
+                  {t('library.sortMostUsed')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sortChip, sortMode === 'az' && styles.sortChipActive]}
+                onPress={() => setSortMode('az')}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.sortChipText, sortMode === 'az' && styles.sortChipTextActive]}>
+                  {t('library.sortAtoZ')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </GlassCard>
+
+        {favoriteExercises.length > 0 && (
+          <GlassCard style={styles.card}>
+            <View style={styles.groupHeader}>
+              <View style={styles.groupIconCircle}>
+                <Star size={16} color={colors.warning} />
+              </View>
+              <View>
+                <Text style={styles.groupTitle}>{t('library.favoritesTitle')}</Text>
+                <Text style={styles.groupSubtitle}>
+                  {t('library.metaCount', undefined, favoriteExercises.length)}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.exerciseList}>
+              {favoriteExercises.map((item, index) => {
+                const isLast = index === favoriteExercises.length - 1;
+                const isSelected = selectedExercises.some((p) => p.name === item.name && p.group === item.group);
+                const latest = latestPerformanceByExercise.get(item.name.trim().toLowerCase());
+                return (
+                  <TouchableOpacity
+                    key={`fav-${item.group}-${item.name}`}
+                    onPress={() => handlePressExercise(item.name, item.group)}
+                    activeOpacity={0.8}
+                    style={[
+                      styles.exerciseRow,
+                      !isLast && styles.exerciseRowDivider,
+                      isSelected && styles.exerciseRowActive,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <View style={styles.exerciseNameWrapper}>
+                      <View style={[styles.exerciseDot, isSelected && styles.exerciseDotActive]} />
+                      <View style={styles.exerciseTextCol}>
+                        <Text style={[styles.exerciseName, isSelected && styles.exerciseNameActive]}>
+                          {translateName(item.name)}
+                        </Text>
+                        <Text style={styles.exerciseMeta}>
+                          {latest
+                            ? t('library.latestMeta', undefined, {
+                                reps: latest.reps,
+                                weight: latest.weight,
+                                date: latest.date,
+                              })
+                            : t('library.latestEmpty')}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.exerciseActions}>
+                      <TouchableOpacity
+                        style={styles.favoriteBtn}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite(item.name, item.group);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('library.toggleFavoriteA11y', undefined, translateName(item.name))}
+                      >
+                        <Star size={14} color={colors.warning} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.quickAddBtn, isSelected && styles.quickAddBtnActive]}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          handlePressExercise(item.name, item.group);
+                        }}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('library.selectExercise', undefined, translateName(item.name))}
+                      >
+                        <Text style={[styles.quickAddBtnText, isSelected && styles.quickAddBtnTextActive]}>
+                          {isSelected ? t('library.quickAdded') : t('library.quickAdd')}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </GlassCard>
+        )}
 
         <GlassCard style={styles.card}>
           <TouchableOpacity
@@ -309,7 +579,7 @@ export default function AllExercisesScreen() {
                           typeof bodyTemplate === 'string'
                             ? bodyTemplate
                             : `${trimmed} lades till i ${targetGroup}.`;
-                        Alert.alert(t('library.addedTitle'), bodyText);
+                        toast(bodyText);
                       }}
                     >
                       <Text style={styles.saveButtonText}>{t('library.addCta')}</Text>
@@ -319,7 +589,7 @@ export default function AllExercisesScreen() {
               )}
             </GlassCard>
 
-        {mergedLibrary.map((group) => (
+        {displayGroups.map((group) => (
           <GlassCard key={group.group} style={styles.card}>
             {/* Rubrik för muskelgrupp */}
             <View style={styles.groupHeader}>
@@ -353,6 +623,8 @@ export default function AllExercisesScreen() {
                     (p) => p.name === name && p.group === group.group
                   );
                   const isLast = index === group.exercises.length - 1;
+                  const latest = latestPerformanceByExercise.get(name.trim().toLowerCase());
+                  const isFavorite = favoriteKeys.includes(toExerciseKey(name, group.group));
 
                   return (
                     <TouchableOpacity
@@ -369,21 +641,54 @@ export default function AllExercisesScreen() {
                     >
                       <View style={styles.exerciseNameWrapper}>
                         <View style={[styles.exerciseDot, isSelected && styles.exerciseDotActive]} />
-                        <Text
-                          style={[
-                            styles.exerciseName,
-                            isSelected && styles.exerciseNameActive,
-                          ]}
-                          accessible={false}
-                        >
-                          {displayName}
-                        </Text>
+                        <View style={styles.exerciseTextCol}>
+                          <Text
+                            style={[
+                              styles.exerciseName,
+                              isSelected && styles.exerciseNameActive,
+                            ]}
+                            accessible={false}
+                          >
+                            {displayName}
+                          </Text>
+                          <Text style={styles.exerciseMeta}>
+                            {latest
+                              ? t('library.latestMeta', undefined, {
+                                  reps: latest.reps,
+                                  weight: latest.weight,
+                                  date: latest.date,
+                                })
+                              : t('library.latestEmpty')}
+                          </Text>
+                        </View>
                       </View>
-                      {isSelected && (
-                        <Text style={styles.exerciseTag}>
-                          {t('library.selectedTag')}
-                        </Text>
-                      )}
+                      <View style={styles.exerciseActions}>
+                        <TouchableOpacity
+                          style={[styles.favoriteBtn, isFavorite && styles.favoriteBtnActive]}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            toggleFavorite(name, group.group);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('library.toggleFavoriteA11y', undefined, displayName)}
+                        >
+                          <Star size={14} color={isFavorite ? colors.warning : colors.textSoft} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.quickAddBtn, isSelected && styles.quickAddBtnActive]}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            handlePressExercise(name, group.group);
+                          }}
+                          activeOpacity={0.85}
+                          accessibilityRole="button"
+                          accessibilityLabel={t('library.selectExercise', undefined, displayName)}
+                        >
+                          <Text style={[styles.quickAddBtnText, isSelected && styles.quickAddBtnTextActive]}>
+                            {isSelected ? t('library.quickAdded') : t('library.quickAdd')}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     </TouchableOpacity>
                   );
                 })
@@ -391,6 +696,19 @@ export default function AllExercisesScreen() {
             </View>
           </GlassCard>
         ))}
+        {displayGroups.length === 0 && (
+          <GlassCard style={styles.card}>
+            <EmptyState
+              title={t('library.emptySearchTitle')}
+              subtitle={t('library.emptySearchSubtitle')}
+              ctaLabel={t('library.clearSearch')}
+              onPressCta={() => {
+                setSearchQuery('');
+                setActiveGroupFilter('all');
+              }}
+            />
+          </GlassCard>
+        )}
 
         {selectedExercises.length > 0 && (() => {
           const moveTarget = moveGroup;
@@ -401,7 +719,7 @@ export default function AllExercisesScreen() {
               <Text style={styles.footerValue}>
                 {selectedExercises.length === 1
                   ? translateName(selectedExercises[0].name)
-                  : `${selectedExercises.length} övningar valda`}
+                  : t('library.footerSelectedMany', undefined, selectedExercises.length)}
               </Text>
               {selectedExercises.length === 1 ? (
                 <Text style={styles.footerHint}>
@@ -512,7 +830,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: spacing.md,
   },
   title: {
     ...typography.display,
@@ -539,7 +857,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   card: {
-    marginTop: 10,
+    marginTop: layout.sectionGap,
   },
   groupHeader: {
     flexDirection: 'row',
@@ -608,8 +926,11 @@ const styles = StyleSheet.create({
   exerciseNameWrapper: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
+  },
+  exerciseTextCol: {
+    flex: 1,
   },
   exerciseName: {
     ...typography.bodyBold,
@@ -617,6 +938,11 @@ const styles = StyleSheet.create({
   },
   exerciseNameActive: {
     color: '#bbf7d0',
+  },
+  exerciseMeta: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 2,
   },
   exerciseDot: {
     width: 8,
@@ -643,13 +969,107 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: '#bbf7d0',
   },
+  filterRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  sortRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  filterChip: {
+    minHeight: 30,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
+    justifyContent: 'center',
+  },
+  filterChipActive: {
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+  },
+  filterChipText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  filterChipTextActive: {
+    color: colors.textMain,
+  },
+  sortChip: {
+    minHeight: 30,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+  },
+  sortChipActive: {
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+  },
+  sortChipText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  sortChipTextActive: {
+    color: colors.textMain,
+  },
+  exerciseActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  favoriteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favoriteBtnActive: {
+    borderColor: colors.warning,
+    backgroundColor: colors.primarySoft,
+  },
+  quickAddBtn: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+  },
+  quickAddBtnActive: {
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+  },
+  quickAddBtnText: {
+    ...typography.micro,
+    color: colors.textSoft,
+    fontWeight: '700',
+  },
+  quickAddBtnTextActive: {
+    color: colors.textMain,
+  },
   footerInfo: {
     marginTop: 16,
     padding: 12,
     borderRadius: 12,
-    backgroundColor: '#020617',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   footerLabel: {
     ...typography.caption,
@@ -679,7 +1099,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
   },
   actionButtonText: {
     ...typography.micro,
@@ -690,21 +1110,22 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   dangerButton: {
-    borderColor: '#ef4444',
-    backgroundColor: '#2f1212',
+    borderColor: '#b91c1c',
+    backgroundColor: 'rgba(127,29,29,0.45)',
   },
   moveButton: {
     borderColor: colors.accentBlue,
-    backgroundColor: '#0b1530',
+    backgroundColor: colors.backgroundSoft,
   },
   input: {
-    backgroundColor: colors.backgroundSoft,
-    borderRadius: 10,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: inputs.borderColor,
     color: colors.textMain,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     fontSize: 13,
   },
   chipRow: {
@@ -718,7 +1139,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     backgroundColor: colors.backgroundSoft,
   },
   chipActive: {

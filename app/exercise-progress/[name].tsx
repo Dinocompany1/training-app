@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import Svg, { Polyline, Circle } from 'react-native-svg';
 import GlassCard from '../../components/ui/GlassCard';
-import { colors, gradients } from '../../constants/theme';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import { colors, gradients, layout, radii, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import BackPill from '../../components/ui/BackPill';
@@ -164,14 +165,13 @@ export default function ExerciseProgressDetailScreen() {
         </View>
 
         <View style={styles.titleRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>
-              {exerciseName || t('exerciseDetail.unnamed')}
-            </Text>
-            <Text style={styles.subtitle}>
-              {t('exerciseDetail.subtitle')}
-            </Text>
-          </View>
+          <ScreenHeader
+            title={exerciseName || t('exerciseDetail.unnamed')}
+            subtitle={t('exerciseDetail.subtitle')}
+            compact
+            tone="green"
+            style={styles.titleHeader}
+          />
           {stats.sessions > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{stats.sessions} pass</Text>
@@ -364,6 +364,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  titleHeader: {
+    flex: 1,
+    marginBottom: 0,
+  },
   badge: {
     borderRadius: 999,
     paddingVertical: 6,
@@ -378,12 +382,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   emptyText: {
+    ...typography.caption,
     color: colors.textSoft,
-    fontSize: 13,
     marginTop: 16,
   },
   card: {
-    marginTop: 10,
+    marginTop: layout.sectionGap,
   },
   summaryGrid: {
     flexDirection: 'row',
@@ -392,31 +396,29 @@ const styles = StyleSheet.create({
   summaryItem: {
     flex: 1,
     backgroundColor: '#020617',
-    borderRadius: 12,
+    borderRadius: radii.button,
     paddingVertical: 8,
     paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: '#334155',
   },
   summaryLabel: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
   },
   summaryValue: {
+    ...typography.title,
     color: colors.textMain,
-    fontSize: 16,
-    fontWeight: '700',
     marginTop: 2,
   },
   summaryValueSmall: {
+    ...typography.bodyBold,
     color: colors.textMain,
-    fontSize: 13,
-    fontWeight: '700',
     marginLeft: 4,
   },
   summaryHint: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
     marginTop: 4,
   },
   trendRow: {
@@ -435,29 +437,28 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '45%',
     backgroundColor: '#020617',
-    borderRadius: 12,
+    borderRadius: radii.button,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: '#334155',
   },
 
   cardTitle: {
+    ...typography.title,
     color: colors.textMain,
-    fontSize: 16,
-    fontWeight: '700',
   },
   cardText: {
+    ...typography.caption,
     color: colors.textSoft,
-    fontSize: 12,
     marginTop: 2,
   },
 
   sparkWrapper: {
     marginTop: 12,
     backgroundColor: '#020617',
-    borderRadius: 14,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: '#334155',
     padding: 10,
   },
   sparkLabels: {
@@ -466,8 +467,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   sparkLabel: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
   },
 
   historyRow: {
@@ -481,24 +482,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
   },
   historyDate: {
+    ...typography.bodyBold,
     color: colors.textMain,
-    fontSize: 13,
-    fontWeight: '600',
   },
   historyText: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
   },
   historyRight: {
     alignItems: 'flex-end',
   },
   historyWeight: {
+    ...typography.bodyBold,
     color: colors.textMain,
-    fontSize: 13,
-    fontWeight: '600',
   },
   historyVolume: {
+    ...typography.micro,
     color: colors.textSoft,
-    fontSize: 11,
   },
 });

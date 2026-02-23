@@ -19,7 +19,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BackPill from '../../components/ui/BackPill';
 import GlassCard from '../../components/ui/GlassCard';
-import { colors, gradients } from '../../constants/theme';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import { colors, gradients, inputs, layout } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import { toast } from '../../utils/toast';
@@ -86,22 +87,18 @@ export default function WorkoutDetailScreen() {
             const removed = workout;
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             removeWorkout(workout.id);
-            toast(t('workoutDetail.deletedToast'));
-            Alert.alert(t('workoutDetail.deletedTitle'), t('workoutDetail.deletedBody'), [
-              {
-                text: t('common.undo'),
-                style: 'default',
+            router.back();
+            toast({
+              message: t('workoutDetail.deletedToast'),
+              action: {
+                label: t('common.undo'),
                 onPress: () => {
                   Haptics.selectionAsync();
                   addWorkout(removed);
+                  toast(t('common.restored'));
                 },
               },
-              {
-                text: t('common.ok'),
-                style: 'default',
-                onPress: () => router.back(),
-              },
-            ]);
+            });
           },
         },
       ]
@@ -135,7 +132,6 @@ export default function WorkoutDetailScreen() {
     updateWorkout(updatedWorkout);
     toast(t('workoutDetail.savedToast'));
     setIsEditing(false);
-    Alert.alert(t('workoutDetail.savedTitle'), t('workoutDetail.savedBody'));
   };
 
   const handleDateChange = (
@@ -154,7 +150,7 @@ export default function WorkoutDetailScreen() {
   };
 
   const handleExercisePress = (exerciseName: string) => {
-    router.push(`/exercise/${encodeURIComponent(exerciseName)}`);
+    router.push(`/exercise-progress/${encodeURIComponent(exerciseName)}`);
   };
 
   return (
@@ -173,7 +169,7 @@ export default function WorkoutDetailScreen() {
         {/* BACK + TITLE */}
         <View style={styles.topRow}>
           <BackPill onPress={() => router.back()} />
-          <Text style={styles.screenTitle}>{t('workoutDetail.title')}</Text>
+          <ScreenHeader title={t('workoutDetail.title')} compact tone="blue" style={styles.topRowTitle} />
         </View>
 
         {/* PASSINFO */}
@@ -331,7 +327,7 @@ export default function WorkoutDetailScreen() {
             style={[styles.button, styles.saveButton, { marginTop: 6 }]}
             onPress={() => {
               Haptics.selectionAsync();
-              router.replace({
+              router.push({
                 pathname: '/workout/quick-workout',
                 params: {
                   title: workout.title,
@@ -521,6 +517,10 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  topRowTitle: {
+    flex: 1,
+    marginBottom: 0,
+  },
   backButton: {
   },
   screenTitle: {
@@ -530,7 +530,7 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    marginTop: 4,
+    marginTop: layout.inputGap,
   },
 
   workoutTitle: {
@@ -560,13 +560,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   input: {
-    backgroundColor: '#020617',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     color: 'white',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: inputs.borderColor,
     fontSize: 14,
   },
   notesInput: {
@@ -580,12 +581,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: inputs.borderColor,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
   },
   datePickerText: {
     color: colors.textMain,

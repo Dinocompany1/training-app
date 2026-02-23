@@ -9,7 +9,6 @@ import {
 } from 'lucide-react-native';
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -17,11 +16,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-  SafeAreaView,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../components/ui/GlassCard';
-import { colors, gradients, typography } from '../constants/theme';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { colors, gradients, inputs, layout, radii, spacing, typography } from '../constants/theme';
 import { Exercise, Template, useWorkouts } from '../context/WorkoutsContext';
 import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
@@ -29,6 +29,7 @@ import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
 import { useTranslation } from '../context/TranslationContext';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
 import BackPill from '../components/ui/BackPill';
+import { createId } from '../utils/id';
 
 const sanitizeNumeric = (value: string) =>
   value.replace(/[^0-9.,-]/g, '').replace(',', '.');
@@ -54,6 +55,7 @@ const COLOR_OPTIONS = [
   '#e11d48', // röd/rosa
   '#a855f7', // lila
 ];
+type FocusedField = 'title' | 'notes' | 'customName' | null;
 
 export default function RoutineBuilderScreen() {
   const router = useRouter();
@@ -67,12 +69,14 @@ export default function RoutineBuilderScreen() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [formError, setFormError] = useState('');
   const [weightError, setWeightError] = useState('');
+  const [focusedField, setFocusedField] = useState<FocusedField>(null);
 
   // Card 2 – övningar
   const [showExerciseList, setShowExerciseList] = useState(false);
   const [selectedExercises, setSelectedExercises] = useState<Exercise[]>([]);
   const [customName, setCustomName] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customMuscleGroup, setCustomMuscleGroup] = useState<string>('Övrigt');
 
   // När man trycker "Klar" för att gå till set/reps/vikt-läget
   const [showDetails, setShowDetails] = useState(false);
@@ -90,21 +94,22 @@ export default function RoutineBuilderScreen() {
     return base;
   }, [customExercises]);
 
-  const toggleExerciseFromLibrary = (name: string) => {
+  const toggleExerciseFromLibrary = (name: string, group?: string) => {
     const exists = selectedExercises.find((e) => e.name === name);
     if (exists) {
       setSelectedExercises((prev) => prev.filter((e) => e.name !== name));
     } else {
-      const groupEntry = mergedLibrary.find((g) =>
-        g.exercises.some((ex) => ex.name === name)
-      );
+      const groupEntry =
+        group ||
+        mergedLibrary.find((g) => g.exercises.some((ex) => ex.name === name))
+          ?.group;
       const newExercise: Exercise = {
-        id: Date.now().toString() + name,
+        id: createId('rb-ex'),
         name,
         sets: 3,
         reps: '10',
         weight: 0,
-        muscleGroup: normalizeMuscleGroup(groupEntry?.group || t('exercises.groups.Övrigt'), t),
+        muscleGroup: normalizeMuscleGroup(groupEntry || t('exercises.groups.Övrigt'), t),
       };
       setSelectedExercises((prev) => [...prev, newExercise]);
     }
@@ -191,21 +196,22 @@ export default function RoutineBuilderScreen() {
     Haptics.selectionAsync();
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert(t('routineBuilder.errors.generic'), t('routineBuilder.errors.nameRequired'));
+      toast(t('routineBuilder.errors.nameRequired'));
       return;
     }
 
     const newExercise: Exercise = {
-      id: Date.now().toString() + trimmed,
+      id: createId('rb-custom'),
       name: trimmed,
       sets: 3,
       reps: '10',
       weight: 0,
-      muscleGroup: 'Övrigt',
+      muscleGroup: normalizeMuscleGroup(customMuscleGroup, t),
     };
 
     setSelectedExercises((prev) => [...prev, newExercise]);
     setCustomName('');
+    setCustomMuscleGroup('Övrigt');
     setShowCustomInput(false);
   };
 
@@ -216,10 +222,7 @@ export default function RoutineBuilderScreen() {
   const handleConfirmExercises = () => {
     Haptics.selectionAsync();
     if (selectedExercises.length === 0) {
-      Alert.alert(
-        t('routineBuilder.errors.generic'),
-        t('routineBuilder.errors.noExercises')
-      );
+      toast(t('routineBuilder.errors.noExercises'));
       return;
     }
     setShowDetails(true);
@@ -270,18 +273,12 @@ export default function RoutineBuilderScreen() {
     const trimmedTitle = title.trim();
 
     if (!trimmedTitle) {
-      Alert.alert(
-        t('routineBuilder.errors.generic'),
-        t('routineBuilder.errors.routineName')
-      );
+      toast(t('routineBuilder.errors.routineName'));
       return;
     }
 
     if (selectedExercises.length === 0) {
-      Alert.alert(
-        t('routineBuilder.errors.generic'),
-        t('routineBuilder.errors.routineExercises')
-      );
+      toast(t('routineBuilder.errors.routineExercises'));
       return;
     }
 
@@ -294,7 +291,7 @@ export default function RoutineBuilderScreen() {
     }
 
     const template: Template = {
-      id: Date.now().toString(),
+      id: createId('tpl'),
       name: trimmedTitle,
       description: notes.trim() || undefined,
       color,
@@ -310,12 +307,7 @@ export default function RoutineBuilderScreen() {
     addTemplate(template);
 
     toast(t('routineBuilder.saveToast'));
-    Alert.alert(t('routineBuilder.saveAlertTitle'), t('routineBuilder.saveAlertBody'), [
-      {
-        text: t('routineBuilder.saveOk'),
-        onPress: () => router.replace('/(tabs)/add-workout'),
-      },
-    ]);
+    router.push('/(tabs)/add-workout');
   };
 
   return (
@@ -336,10 +328,25 @@ export default function RoutineBuilderScreen() {
           <View style={{ paddingBottom: 6 }}>
             <BackPill onPress={() => router.back()} />
           </View>
-          <Text style={styles.title}>{t('routineBuilder.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('routineBuilder.subtitle')}
-          </Text>
+          <ScreenHeader title={t('routineBuilder.title')} subtitle={t('routineBuilder.subtitle')} tone="blue" />
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('common.name')}</Text>
+              <Text numberOfLines={1} style={styles.summaryValue}>
+                {title.trim() || '...'}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('routineBuilder.selectedLabel')}</Text>
+              <Text style={styles.summaryValue}>{selectedExercises.length}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('routineBuilder.detailsTitle')}</Text>
+              <Text style={styles.summaryValue}>
+                {showDetails ? t('common.yes') : t('common.no')}
+              </Text>
+            </View>
+          </View>
 
           {/* CARD 1 – RUTININFO */}
           <GlassCard style={styles.card}>
@@ -400,17 +407,21 @@ export default function RoutineBuilderScreen() {
             <TextInput
               value={title}
               onChangeText={setTitle}
-              style={styles.input}
+              onFocus={() => setFocusedField('title')}
+              onBlur={() => setFocusedField((prev) => (prev === 'title' ? null : prev))}
+              style={[styles.input, focusedField === 'title' && styles.inputFocused]}
               placeholder={t('routineBuilder.namePlaceholder')}
               placeholderTextColor={colors.textSoft}
             />
 
             {/* Anteckningar */}
-            <Text style={[styles.label, { marginTop: 10 }]}>{t('common.notes')}</Text>
+            <Text style={[styles.label, styles.labelSpaced]}>{t('common.notes')}</Text>
             <TextInput
               value={notes}
               onChangeText={setNotes}
-              style={[styles.input, styles.notesInput]}
+              onFocus={() => setFocusedField('notes')}
+              onBlur={() => setFocusedField((prev) => (prev === 'notes' ? null : prev))}
+              style={[styles.input, styles.notesInput, focusedField === 'notes' && styles.inputFocused]}
               placeholder={t('routineBuilder.notesPlaceholder')}
               placeholderTextColor={colors.textSoft}
               multiline
@@ -444,8 +455,8 @@ export default function RoutineBuilderScreen() {
                 accessibilityLabel={t('routineBuilder.libraryButton')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>{t('routineBuilder.libraryButton')}</Text>
+                <PlusCircle size={15} color={colors.textMain} />
+                <Text style={styles.actionChipText}>{t('routineBuilder.libraryButton')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -457,8 +468,8 @@ export default function RoutineBuilderScreen() {
                 accessibilityLabel={t('routineBuilder.customButton')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>{t('routineBuilder.customButton')}</Text>
+                <PlusCircle size={15} color={colors.textMain} />
+                <Text style={styles.actionChipText}>{t('routineBuilder.customButton')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -469,13 +480,15 @@ export default function RoutineBuilderScreen() {
                 <TextInput
                   value={customName}
                   onChangeText={setCustomName}
-                  style={styles.input}
+                  onFocus={() => setFocusedField('customName')}
+                  onBlur={() => setFocusedField((prev) => (prev === 'customName' ? null : prev))}
+                  style={[styles.input, focusedField === 'customName' && styles.inputFocused]}
                   placeholder={t('routineBuilder.customPlaceholder')}
                   placeholderTextColor={colors.textSoft}
                 />
                 <View style={styles.muscleRow}>
                   {MUSCLE_GROUPS.map((mg) => {
-                    const active = false; // enkel default, custom övning får välja vid sparning
+                    const active = customMuscleGroup === mg;
                     return (
                       <TouchableOpacity
                         key={`custom-${mg}`}
@@ -484,21 +497,9 @@ export default function RoutineBuilderScreen() {
                           active && styles.muscleChipActive,
                         ]}
                         onPress={() => {
-                          // sätt default muskelgrupp på custom övning
-                          setSelectedExercises((prev) => [
-                            ...prev,
-                            {
-                              id: Date.now().toString() + customName + mg,
-                              name: customName.trim() || 'Övning',
-                              sets: 3,
-                              reps: '10',
-                              weight: 0,
-                             muscleGroup: mg,
-                           },
-                         ]);
-                         setCustomName('');
-                         setShowCustomInput(false);
-                       }}
+                          Haptics.selectionAsync();
+                          setCustomMuscleGroup(mg);
+                        }}
                         accessibilityLabel={t('routineBuilder.selectMuscle', undefined, mg)}
                         accessibilityRole="button"
                      >
@@ -535,7 +536,7 @@ export default function RoutineBuilderScreen() {
                 selectedNames={selectedExercises.map((e) => e.name)}
                 onToggle={(name, group) => {
                   Haptics.selectionAsync();
-                  toggleExerciseFromLibrary(name);
+                  toggleExerciseFromLibrary(name, group);
                 }}
                 style={{ marginTop: 10 }}
                 showMuscleChips
@@ -662,7 +663,39 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: spacing.md,
+  },
+  summaryCard: {
+    marginTop: 6,
+    marginBottom: 4,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: 'rgba(8,14,26,0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  summaryItem: {
+    flex: 1,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: '#0a1322',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 54,
+    justifyContent: 'center',
+  },
+  summaryLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  summaryValue: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    marginTop: 2,
   },
   title: {
     ...typography.display,
@@ -675,7 +708,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   card: {
-    marginTop: 10,
+    marginTop: layout.sectionGapLg,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -696,12 +729,12 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 32,
     height: 32,
-    borderRadius: 999,
-    backgroundColor: '#020617',
+    borderRadius: radii.button,
+    backgroundColor: '#08111f',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#2c3f58',
   },
   cardTitle: {
     ...typography.title,
@@ -717,11 +750,11 @@ const styles = StyleSheet.create({
   colorCircle: {
     width: 32,
     height: 32,
-    borderRadius: 999,
+    borderRadius: radii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#0b1120',
+    borderWidth: 1.5,
+    borderColor: '#cdd9ea',
   },
   colorRow: {
     flexDirection: 'row',
@@ -731,8 +764,8 @@ const styles = StyleSheet.create({
   colorOption: {
     width: 22,
     height: 22,
-    borderRadius: 999,
-    borderWidth: 2,
+    borderRadius: radii.button,
+    borderWidth: 1.5,
     borderColor: 'transparent',
   },
   colorOptionActive: {
@@ -741,19 +774,31 @@ const styles = StyleSheet.create({
 
   label: {
     ...typography.caption,
-    color: '#e5e7eb',
-    marginBottom: 4,
-    marginTop: 4,
+    color: colors.textMuted,
+    marginBottom: 6,
+    marginTop: 6,
+    letterSpacing: 0.2,
+  },
+  labelSpaced: {
+    marginTop: 12,
   },
   input: {
-    backgroundColor: '#020617',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     color: 'white',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: inputs.borderColor,
     ...typography.body,
+  },
+  inputFocused: {
+    borderColor: colors.primaryBright,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
   },
   notesInput: {
     minHeight: 80,
@@ -763,38 +808,39 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4,
+    marginTop: 8,
+    flexWrap: 'wrap',
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    paddingVertical: 6,
+    gap: 5,
+    borderRadius: radii.button,
+    paddingVertical: 8,
     paddingHorizontal: 10,
+    minHeight: 36,
+    borderWidth: 1,
+    borderColor: '#334a67',
   },
   actionChipPrimary: {
-    backgroundColor: colors.accentGreen,
+    backgroundColor: '#0a1422',
   },
   actionChipSecondary: {
-    backgroundColor: colors.accentBlue,
+    backgroundColor: '#0a1422',
   },
-  actionChipTextPrimary: {
+  actionChipText: {
     ...typography.caption,
-    color: '#022c22',
-    fontWeight: '700',
-  },
-  actionChipTextSecondary: {
-    ...typography.caption,
-    color: '#0b1120',
+    color: colors.textMain,
     fontWeight: '700',
   },
 
   customExerciseBox: {
     marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#111827',
+    backgroundColor: '#08111f',
+    borderWidth: 1,
+    borderColor: '#24354c',
+    borderRadius: radii.button,
+    padding: 10,
   },
 
   exerciseListBox: {
@@ -900,10 +946,12 @@ const styles = StyleSheet.create({
   },
 
   selectedBox: {
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#111827',
+    marginTop: 14,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#24354c',
+    backgroundColor: '#08111f',
+    padding: 10,
   },
   emptyText: {
     ...typography.caption,
@@ -913,7 +961,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 36,
     paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#24354c',
   },
   selectedLeft: {
     flexDirection: 'row',
@@ -927,31 +978,37 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentBlue,
   },
   selectedName: {
-    ...typography.bodyBold,
+    ...typography.body,
     color: colors.textMain,
   },
   removeText: {
     ...typography.micro,
-    color: '#f97316',
+    color: '#fb923c',
+    fontWeight: '700',
   },
 
   confirmButton: {
     marginTop: 10,
-    backgroundColor: colors.success, // Starta pass: grön
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
   },
 
   button: {
     marginTop: 14,
-    borderRadius: 999,
+    borderRadius: radii.button,
     paddingVertical: 11,
+    minHeight: inputs.height,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
   secondaryButton: {
-    backgroundColor: colors.primary, // Planera: lila
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
   },
   saveButton: {
     backgroundColor: colors.primary,
+    borderColor: '#c084fc',
   },
   buttonText: {
     ...typography.bodyBold,
@@ -965,11 +1022,11 @@ const styles = StyleSheet.create({
   },
   muscleChip: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+    paddingVertical: 6,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: '#324762',
+    backgroundColor: '#0a1422',
   },
   muscleChipActive: {
     borderColor: colors.primary,

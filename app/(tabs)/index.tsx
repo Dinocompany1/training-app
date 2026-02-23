@@ -9,30 +9,41 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
-  SafeAreaView,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
-import GlowProgressBar from '../../components/ui/GlowProgressBar';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import StaggerReveal from '../../components/ui/StaggerReveal';
 import { colors, gradients, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
 import { getWeekRange, isDateInRange } from '../../utils/weekRange';
-import { loadOngoingQuickWorkout } from '../../utils/ongoingQuickWorkout';
-import { compareISODate, parseISODate, todayISO } from '../../utils/date';
+import {
+  loadOngoingQuickWorkout,
+  type OngoingQuickWorkoutSnapshot,
+} from '../../utils/ongoingQuickWorkout';
+import { compareISODate, parseISODate } from '../../utils/date';
+import { sortWorkoutsByRecencyDesc } from '../../utils/workoutRecency';
+
+const todayISOFor = (date: Date) => {
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, '0');
+  const d = `${date.getDate()}`.padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
 
 export default function HomeScreen() {
   const router = useRouter();
   const { workouts, weeklyGoal, templates } = useWorkouts();
   const { t } = useTranslation();
-  const [ongoingSnapshot, setOngoingSnapshot] = React.useState<any | null>(null);
-
-  const today = useMemo(() => new Date(), []);
-  const todayStr = todayISO(); // YYYY-MM-DD
+  const [ongoingSnapshot, setOngoingSnapshot] = React.useState<OngoingQuickWorkoutSnapshot | null>(null);
+  const [currentDate, setCurrentDate] = React.useState(() => new Date());
+  const todayStr = useMemo(() => todayISOFor(currentDate), [currentDate]);
   const dedupeWorkouts = useCallback((items: typeof workouts) => {
     const byKey = new Map<string, (typeof workouts)[number]>();
     items.forEach((w) => {
-      const key = `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
+      const key = w.id || `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
       const existing = byKey.get(key);
       if (!existing || (!existing.isCompleted && w.isCompleted)) {
         byKey.set(key, w);
@@ -40,13 +51,21 @@ export default function HomeScreen() {
     });
     return Array.from(byKey.values());
   }, []);
+  const dedupedAllWorkouts = useMemo(() => dedupeWorkouts(workouts), [dedupeWorkouts, workouts]);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentDate(new Date());
+    }, 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const workoutsToday = useMemo(() => {
-    const todays = dedupeWorkouts(workouts.filter((w) => w.date === todayStr));
+    const todays = dedupedAllWorkouts.filter((w) => w.date === todayStr);
     return todays.sort((a, b) =>
       a.isCompleted === b.isCompleted ? 0 : a.isCompleted ? -1 : 1
     );
-  }, [dedupeWorkouts, workouts, todayStr]);
+  }, [dedupedAllWorkouts, todayStr]);
 
   const startPlannedWorkout = useCallback(
     (w: (typeof workouts)[number]) => {
@@ -63,30 +82,28 @@ export default function HomeScreen() {
     [router]
   );
   const latestWorkout = useMemo(() => {
-    if (workouts.length === 0) return null;
+    if (dedupedAllWorkouts.length === 0) return null;
     // Visa endast senaste avslutade passet
-    const completed = workouts.filter((w) => w.isCompleted);
+    const completed = dedupedAllWorkouts.filter((w) => w.isCompleted);
     if (completed.length === 0) return null;
-    return completed.sort(
-      (a, b) => compareISODate(b.date, a.date)
-    )[0];
-  }, [workouts]);
+    return sortWorkoutsByRecencyDesc(completed)[0];
+  }, [dedupedAllWorkouts]);
   const latestTemplateInfo = useMemo(() => {
     if (!latestWorkout?.sourceTemplateId) return null;
     const t = templates.find((tpl) => tpl.id === latestWorkout.sourceTemplateId);
     return t ? { name: t.name, color: t.color } : null;
   }, [latestWorkout, templates]);
-  const weekRange = useMemo(() => getWeekRange(today), [today]);
+  const weekRange = useMemo(() => getWeekRange(currentDate), [currentDate]);
 
   const workoutsThisWeek = useMemo(() => {
-    const inRange = workouts.filter(
+    const inRange = dedupedAllWorkouts.filter(
       (w) => w.isCompleted && isDateInRange(w.date, weekRange.start, weekRange.end)
     );
-    return dedupeWorkouts(inRange);
-  }, [dedupeWorkouts, workouts, weekRange]);
+    return inRange;
+  }, [dedupedAllWorkouts, weekRange]);
 
   const refreshOngoing = useCallback(() => {
-    loadOngoingQuickWorkout().then((snap) => {
+    loadOngoingQuickWorkout<OngoingQuickWorkoutSnapshot>().then((snap) => {
       if (snap && snap.exercises && snap.exercises.length > 0) {
         setOngoingSnapshot(snap);
       } else {
@@ -103,14 +120,14 @@ export default function HomeScreen() {
 
   // Enkel streak-beräkning
   const streak = useMemo(() => {
-    if (workouts.length === 0) return 0;
+    if (dedupedAllWorkouts.length === 0) return 0;
 
     const uniqueDates = Array.from(
-      new Set(workouts.map((w) => w.date))
+      new Set(dedupedAllWorkouts.map((w) => w.date))
     ).sort((a, b) => compareISODate(b, a));
 
     let count = 0;
-    const parsedToday = parseISODate(todayStr) ?? today;
+    const parsedToday = parseISODate(todayStr) ?? currentDate;
     const todayOnly = new Date(parsedToday.getFullYear(), parsedToday.getMonth(), parsedToday.getDate());
 
     const latest = parseISODate(uniqueDates[0]);
@@ -142,13 +159,92 @@ export default function HomeScreen() {
     }
 
     return count;
-  }, [workouts, today, todayStr]);
+  }, [dedupedAllWorkouts, currentDate, todayStr]);
 
   const hasWorkoutToday = workoutsToday.length > 0;
-  const weeklyProgress = weeklyGoal > 0 ? Math.min(1, workoutsThisWeek.length / weeklyGoal) : 0;
+  const plannedToday = useMemo(
+    () => workoutsToday.filter((w) => !w.isCompleted),
+    [workoutsToday]
+  );
+  const nextPlannedWorkout = useMemo(() => {
+    if (plannedToday.length > 0) return plannedToday[0];
+    return [...dedupedAllWorkouts]
+      .filter((w) => !w.isCompleted && w.date >= todayStr)
+      .sort((a, b) => compareISODate(a.date, b.date))[0] || null;
+  }, [plannedToday, dedupedAllWorkouts, todayStr]);
+  const weekLeft = Math.max(0, (weeklyGoal || 0) - workoutsThisWeek.length);
+  const weekDayData = useMemo(() => {
+    const labels = [
+      t('home.dayMon'),
+      t('home.dayTue'),
+      t('home.dayWed'),
+      t('home.dayThu'),
+      t('home.dayFri'),
+      t('home.daySat'),
+      t('home.daySun'),
+    ];
+    const deduped = dedupeWorkouts(workouts);
+    return labels.map((label, index) => {
+      const date = new Date(weekRange.start);
+      date.setDate(weekRange.start.getDate() + index);
+      const iso = todayISOFor(date);
+      const dayItems = deduped.filter((w) => w.date === iso);
+      const hasDone = dayItems.some((w) => w.isCompleted);
+      const hasPlanned = dayItems.some((w) => !w.isCompleted);
+      return {
+        label,
+        iso,
+        isToday: iso === todayStr,
+        status: hasDone ? 'done' : hasPlanned ? 'planned' : 'empty',
+      };
+    });
+  }, [t, dedupeWorkouts, workouts, weekRange.start, todayStr]);
+  const quickTemplates = useMemo(() => templates.slice(0, 3), [templates]);
+  const todayFocus = useMemo(() => {
+    if (ongoingSnapshot) {
+      return {
+        title: t('home.focusResumeTitle'),
+        body: t('home.focusResumeBody'),
+        cta: t('common.resumeButton'),
+        action: () =>
+          router.push({
+            pathname: '/workout/quick-workout',
+            params: {
+              resume: '1',
+              resumeSnapshot: encodeURIComponent(JSON.stringify(ongoingSnapshot)),
+            },
+          }),
+      };
+    }
+    if (nextPlannedWorkout) {
+      return {
+        title: t('home.focusPlanTitle'),
+        body: t('home.focusPlanBody', undefined, {
+          title: nextPlannedWorkout.title,
+          date: nextPlannedWorkout.date,
+        }),
+        cta: t('home.start'),
+        action: () => startPlannedWorkout(nextPlannedWorkout),
+      };
+    }
+    if (weekLeft > 0) {
+      return {
+        title: t('home.focusGoalTitle'),
+        body: t('home.focusGoalBody', undefined, { left: weekLeft }),
+        cta: t('home.focusGoalCta'),
+        action: () => router.push('/(tabs)/calendar'),
+      };
+    }
+    return {
+      title: t('home.focusDoneTitle'),
+      body: t('home.focusDoneBody'),
+      cta: t('home.focusDoneCta'),
+      action: () => router.push('/(tabs)/stats'),
+    };
+  }, [ongoingSnapshot, nextPlannedWorkout, weekLeft, t, router, startPlannedWorkout]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
       <View style={styles.full}>
         <LinearGradient
           colors={gradients.appBackground}
@@ -160,61 +256,65 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
         {ongoingSnapshot && (
-          <GlassCard style={styles.resumeCard} elevated={false}>
-            <View style={styles.resumeHeader}>
-              <View style={styles.resumeIconWrap}>
-                <Play size={16} color="#f97316" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.resumeTitle}>{t('common.resumeTitle')}</Text>
-                <Text style={styles.resumeSubtitle} numberOfLines={1}>
-                  {ongoingSnapshot.title || t('quick.ongoing')}
-                </Text>
-                {ongoingSnapshot.exercises ? (
-                  <Text style={styles.resumeMeta}>
-                    {t('common.resumeMeta', undefined, ongoingSnapshot.exercises.length)}
+          <StaggerReveal delay={20}>
+            <GlassCard style={styles.resumeCard} elevated={false}>
+              <View style={styles.resumeHeader}>
+                <View style={styles.resumeIconWrap}>
+                  <Play size={16} color={colors.warning} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.resumeTitle}>{t('common.resumeTitle')}</Text>
+                  <Text style={styles.resumeSubtitle} numberOfLines={1}>
+                    {ongoingSnapshot.title || t('quick.ongoing')}
                   </Text>
-                ) : null}
-              </View>
-              <TouchableOpacity
-                style={[
-                  styles.resumeCTA,
-                  {
-                    borderColor: '#f97316',
-                    backgroundColor: '#23150c',
-                  },
-                ]}
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  router.push({
-                    pathname: '/workout/quick-workout',
-                    params: {
-                      resume: '1',
-                      resumeSnapshot: encodeURIComponent(JSON.stringify(ongoingSnapshot)),
+                  {ongoingSnapshot.exercises ? (
+                    <Text style={styles.resumeMeta}>
+                      {t('common.resumeMeta', undefined, ongoingSnapshot.exercises.length)}
+                    </Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.resumeCTA,
+                    {
+                      borderColor: colors.warning,
+                      backgroundColor: 'rgba(245,158,11,0.14)',
                     },
-                  });
-                }}
-                accessibilityLabel={t('common.resumeA11y')}
-                accessibilityRole="button"
-              >
-                <Text style={styles.resumeCTAText}>{t('common.resumeButton')}</Text>
-              </TouchableOpacity>
-            </View>
-          </GlassCard>
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push({
+                      pathname: '/workout/quick-workout',
+                      params: {
+                        resume: '1',
+                        resumeSnapshot: encodeURIComponent(JSON.stringify(ongoingSnapshot)),
+                      },
+                    });
+                  }}
+                  accessibilityLabel={t('common.resumeA11y')}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.resumeCTAText}>{t('common.resumeButton')}</Text>
+                </TouchableOpacity>
+              </View>
+            </GlassCard>
+          </StaggerReveal>
         )}
 
-        {/* dekorativa glows borttagna för renare layout */}
-        {/* Header */}
-        <GlassCard style={styles.heroCard} elevated={false}>
+        <StaggerReveal delay={60}>
+          <GlassCard style={styles.heroCard} elevated={false}>
+          <View style={styles.heroGradient}>
             <View style={styles.heroRow}>
               <View style={{ flex: 1 }}>
-              <Text style={styles.title}>{t('home.heroTitle')}</Text>
-              <Text style={styles.subtitle}>
-                {t('home.heroSubtitle')}
-              </Text>
+              <ScreenHeader
+                title={t('home.heroTitle')}
+                subtitle={t('home.heroSubtitle')}
+                tone="blue"
+                style={styles.heroHeader}
+              />
               <View style={styles.heroBadges}>
                 <View style={styles.heroBadge}>
-                  <Flame size={14} color="#f97316" />
+                  <Flame size={14} color={colors.warning} />
                   <Text style={styles.heroBadgeText}>
                     {t('home.heroStreak', undefined, { days: streak })}
                   </Text>
@@ -237,38 +337,183 @@ export default function HomeScreen() {
                   router.push('/workout/quick-workout');
                 }}
                 activeOpacity={0.9}
+                accessibilityRole="button"
+                accessibilityLabel={t('home.start')}
               >
-                <Play size={16} color="#0b1024" />
+                <Play size={16} color={colors.textMain} />
                 <Text style={styles.heroCTAText}>{t('home.start')}</Text>
               </TouchableOpacity>
             </View>
-          </GlassCard>
-
-        {/* Streak / veckomål */}
-        <GlassCard style={styles.streakCard} elevated={false}>
-          <View style={styles.streakRow}>
-            <View style={styles.streakBadge}>
-              <Flame size={16} color="#f97316" />
-              <Text style={styles.streakBadgeText}>{t('home.streakDays', undefined, streak)}</Text>
-            </View>
-            <View>
-              <Text style={styles.streakLabel}>{t('home.streakLabel')}</Text>
-              <Text style={styles.streakValue}>
-                {t('home.streakProgress', undefined, {
-                  done: workoutsThisWeek.length,
-                  goal: weeklyGoal || 0,
-                })}
-              </Text>
-            </View>
           </View>
-          <GlowProgressBar value={weeklyProgress} />
-          <Text style={styles.streakHint}>
-            Håll streaken vid liv och sikta på ditt mål den här veckan.
-          </Text>
-        </GlassCard>
+          </GlassCard>
+        </StaggerReveal>
+
+        <StaggerReveal delay={100}>
+          <GlassCard style={styles.focusCard} elevated={false} tone="violet">
+          <Text style={styles.focusKicker}>{t('home.focusKicker')}</Text>
+          <Text style={styles.focusTitle}>{todayFocus.title}</Text>
+          <Text style={styles.focusBody}>{todayFocus.body}</Text>
+          <TouchableOpacity
+            style={styles.focusCTA}
+            onPress={() => {
+              Haptics.selectionAsync();
+              todayFocus.action();
+            }}
+            activeOpacity={0.9}
+            accessibilityRole="button"
+            accessibilityLabel={todayFocus.cta}
+          >
+            <Text style={styles.focusCTAText}>{todayFocus.cta}</Text>
+          </TouchableOpacity>
+          </GlassCard>
+        </StaggerReveal>
+
+        <StaggerReveal delay={140}>
+          <View style={styles.quickActionsGrid}>
+          <TouchableOpacity
+            style={[styles.quickActionCard, styles.quickActionPrimary]}
+            activeOpacity={0.9}
+            onPress={() => {
+              Haptics.selectionAsync();
+              router.push('/workout/quick-workout');
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('home.quickStartTitle')}
+          >
+            <Play size={18} color={colors.textMain} />
+            <Text style={styles.quickActionPrimaryTitle}>{t('home.quickStartTitle')}</Text>
+            <Text style={styles.quickActionPrimarySub}>{t('home.quickStartBody')}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.quickActionsRow}>
+            <TouchableOpacity
+              style={[
+                styles.quickActionCard,
+                styles.quickActionHalf,
+                !nextPlannedWorkout ? styles.quickActionDisabled : null,
+              ]}
+              activeOpacity={0.9}
+              disabled={!nextPlannedWorkout}
+              onPress={() => {
+                if (!nextPlannedWorkout) return;
+                Haptics.selectionAsync();
+                startPlannedWorkout(nextPlannedWorkout);
+              }}
+            >
+              <CalendarClock size={16} color={colors.primary} />
+              <Text style={styles.quickActionTitle}>{t('home.quickContinueTitle')}</Text>
+              <Text style={styles.quickActionSub}>
+                {nextPlannedWorkout
+                  ? t('home.quickContinueBody', undefined, { title: nextPlannedWorkout.title })
+                  : t('home.quickContinueEmpty')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.quickActionCard, styles.quickActionHalf]}
+              activeOpacity={0.9}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/(tabs)/calendar');
+              }}
+            >
+              <ListChecks size={16} color={colors.accentGreen} />
+              <Text style={styles.quickActionTitle}>{t('home.quickWeekTitle')}</Text>
+              <Text style={styles.quickActionSub}>{t('home.quickWeekBody')}</Text>
+            </TouchableOpacity>
+          </View>
+          </View>
+        </StaggerReveal>
+
+        <StaggerReveal delay={180}>
+          <GlassCard style={styles.rhythmCard} elevated={false}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardTitle}>{t('home.rhythmTitle')}</Text>
+            <Text style={styles.cardText}>{t('home.rhythmSubtitle')}</Text>
+          </View>
+          <View style={styles.rhythmRow}>
+            {weekDayData.map((day) => (
+              <TouchableOpacity
+                key={day.iso}
+                style={[
+                  styles.dayPill,
+                  day.status === 'done'
+                    ? styles.dayPillDone
+                    : day.status === 'planned'
+                    ? styles.dayPillPlanned
+                    : styles.dayPillEmpty,
+                  day.isToday ? styles.dayPillToday : null,
+                ]}
+                activeOpacity={0.9}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  router.push('/(tabs)/calendar');
+                }}
+              >
+                <Text style={styles.dayLabel}>{day.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          </GlassCard>
+        </StaggerReveal>
+
+        <StaggerReveal delay={220}>
+          <GlassCard style={styles.templatesQuickCard} elevated={false}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.cardTitle}>{t('home.quickTemplatesTitle')}</Text>
+            <TouchableOpacity
+              style={styles.templatesAllBtn}
+              activeOpacity={0.9}
+              onPress={() => {
+                Haptics.selectionAsync();
+                router.push('/templates');
+              }}
+            >
+              <Text style={styles.templatesAllText}>{t('home.quickTemplatesAll')}</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.cardText}>{t('home.quickTemplatesSubtitle')}</Text>
+          {quickTemplates.length > 0 ? (
+            <View style={styles.quickTemplatesList}>
+              {quickTemplates.map((template) => (
+                <TouchableOpacity
+                  key={template.id}
+                  style={styles.quickTemplateItem}
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    router.push({
+                      pathname: '/workout/quick-workout',
+                      params: {
+                        templateId: template.id,
+                        title: template.name,
+                        color: template.color,
+                      },
+                    });
+                  }}
+                >
+                  <View style={[styles.templateColorDot, { backgroundColor: template.color || colors.primary }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.quickTemplateTitle}>{template.name}</Text>
+                    <Text style={styles.quickTemplateMeta}>
+                      {t('home.quickTemplateMeta', undefined, template.exercises?.length || 0)}
+                    </Text>
+                  </View>
+                  <ArrowUpRight size={15} color={colors.textSoft} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.restBox}>
+              <Text style={styles.restText}>{t('home.quickTemplatesEmpty')}</Text>
+            </View>
+          )}
+          </GlassCard>
+        </StaggerReveal>
 
         {/* DAGENS PASS */}
-        <GlassCard style={styles.card} elevated={false}>
+        <StaggerReveal delay={260}>
+          <GlassCard style={styles.card} elevated={false}>
           <View style={styles.rowBetween}>
               <View style={styles.row}>
                 <View style={styles.iconCircle}>
@@ -328,7 +573,9 @@ export default function HomeScreen() {
                     router.push('/workout/quick-workout');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startNow')}</Text>
+                  <Text style={[styles.buttonSmallText, styles.buttonSmallTextOnLight]}>
+                    {t('home.startNow')}
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.buttonSmall, styles.outlineButton]}
@@ -337,7 +584,9 @@ export default function HomeScreen() {
                     router.push('/(tabs)/calendar');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.viewCalendar')}</Text>
+                  <Text style={[styles.buttonSmallText, styles.buttonSmallTextOutline]}>
+                    {t('home.viewCalendar')}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -356,109 +605,20 @@ export default function HomeScreen() {
                     router.push('/workout/quick-workout');
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startNow')}</Text>
+                  <Text style={[styles.buttonSmallText, styles.buttonSmallTextOnLight]}>
+                    {t('home.startNow')}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
-        </GlassCard>
-
-        {/* VECKANS PASS */}
-        <GlassCard style={styles.card} elevated={false}>
-          <View style={styles.rowBetween}>
-            <View style={styles.row}>
-              <View style={styles.iconCircle}>
-                <ListChecks size={18} color={colors.accentGreen} />
-              </View>
-              <View>
-                <Text style={styles.cardTitle}>{t('home.weekTitle')}</Text>
-                <Text style={styles.cardText}>
-                  {workoutsThisWeek.length > 0
-                    ? t('home.weekSubHas')
-                    : t('home.weekSubEmpty')}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {workoutsThisWeek.length > 0 ? (
-            <View style={styles.weekList}>
-              {[...workoutsThisWeek]
-                .sort(
-                  (a, b) => compareISODate(b.date, a.date)
-                )
-                .map((w) => (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={styles.weekItem}
-                    activeOpacity={0.9}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      if (!w.isCompleted) {
-                        startPlannedWorkout(w);
-                      } else {
-                        router.push(`/workout/${w.id}`);
-                      }
-                    }}
-                  >
-                    <View style={styles.weekDateCol}>
-                      <View
-                        style={[
-                          styles.weekDot,
-                          { backgroundColor: w.color || colors.primary },
-                        ]}
-                      />
-                      <Text style={styles.weekDate}>
-                        {w.date.slice(5)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.weekTitle}>{w.title}</Text>
-                      <Text style={styles.weekMeta}>
-                        {t('calendar.workoutMeta', undefined, {
-                          count: w.exercises?.length || 0,
-                          status: w.isCompleted ? t('history.statusDone') : t('history.statusPlanned'),
-                        })}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.weekPill,
-                        { borderColor: w.color || colors.primary },
-                      ]}
-                    >
-                      <Text style={styles.weekPillText}>
-                        {w.isCompleted ? t('workoutDetail.setDone') : t('history.statusPlanned')}
-                      </Text>
-                      <ArrowUpRight size={14} color="#cbd5e1" />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-            </View>
-          ) : (
-            <View style={styles.restBox}>
-              <Text style={styles.restTitle}>{t('home.weekStartStrong')}</Text>
-              <Text style={styles.restText}>
-                {t('home.weekStartStrongBody')}
-              </Text>
-              <View style={styles.todayButtonsRow}>
-                <TouchableOpacity
-                  style={[styles.buttonSmall, styles.secondaryButton]}
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    router.push('/schedule-workout');
-                  }}
-                >
-                  <Text style={styles.buttonSmallText}>{t('home.weekEmptyCTA')}</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </GlassCard>
+          </GlassCard>
+        </StaggerReveal>
 
         {/* SENASTE PASS */}
-{latestWorkout && (
-          <GlassCard style={styles.card} elevated={false}>
+{latestWorkout && !hasWorkoutToday && (
+          <StaggerReveal delay={300}>
+            <GlassCard style={styles.card} elevated={false}>
             <View style={styles.rowBetween}>
               <View style={styles.row}>
                 <View
@@ -489,7 +649,7 @@ export default function HomeScreen() {
                   ) : null}
                 </View>
               </View>
-              <View style={[styles.streakPill, { backgroundColor: '#0b1220', borderColor: latestWorkout.color || colors.primary }]}>
+              <View style={[styles.streakPill, { backgroundColor: colors.backgroundSoft, borderColor: latestWorkout.color || colors.primary }]}>
                 <Text style={styles.streakPillText}>
                   {latestWorkout.durationMinutes
                     ? `${latestWorkout.durationMinutes} min`
@@ -545,7 +705,9 @@ export default function HomeScreen() {
                     });
                   }}
                 >
-                  <Text style={styles.buttonSmallText}>{t('home.startAgain')}</Text>
+                  <Text style={[styles.buttonSmallText, styles.buttonSmallTextOnLight]}>
+                    {t('home.startAgain')}
+                  </Text>
                 </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.buttonSmall, styles.outlineButton]}
@@ -557,14 +719,18 @@ export default function HomeScreen() {
                   });
                 }}
               >
-                <Text style={styles.buttonSmallText}>{t('home.viewDetails')}</Text>
+                <Text style={[styles.buttonSmallText, styles.buttonSmallTextOutline]}>
+                  {t('home.viewDetails')}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
-        </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
       )}
-        {!latestWorkout && (
-          <GlassCard style={styles.card} elevated={false}>
+        {!latestWorkout && !hasWorkoutToday && (
+          <StaggerReveal delay={300}>
+            <GlassCard style={styles.card} elevated={false}>
             <View style={styles.rowBetween}>
               <View style={styles.row}>
                 <View
@@ -588,14 +754,17 @@ export default function HomeScreen() {
                 style={[styles.buttonSmall, styles.primaryButton]}
                 onPress={() => {
                   Haptics.selectionAsync();
-                  router.replace('/workout/quick-workout');
+                  router.push('/workout/quick-workout');
                 }}
               >
-                <Play size={16} color="#0b1024" />
-                <Text style={styles.buttonSmallText}>{t('home.start')}</Text>
+                <Play size={16} color={colors.textMain} />
+                <Text style={[styles.buttonSmallText, styles.buttonSmallTextOnLight]}>
+                  {t('home.start')}
+                </Text>
               </TouchableOpacity>
             </View>
-          </GlassCard>
+            </GlassCard>
+          </StaggerReveal>
         )}
         </ScrollView>
       </View>
@@ -615,7 +784,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.lg,
     position: 'relative',
   },
   title: {
@@ -629,17 +798,22 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   heroCard: {
-    marginBottom: spacing.md,
-    paddingVertical: 14,
-    backgroundColor: '#0b1024cc',
+    marginBottom: spacing.lg,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
     borderWidth: 1,
     borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+  },
+  heroGradient: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
   resumeCard: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.cardBorder,
-    backgroundColor: '#0c1024',
+    backgroundColor: colors.surface,
     paddingVertical: 12,
   },
   resumeHeader: {
@@ -651,11 +825,11 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 999,
-    backgroundColor: '#1b130b',
+    backgroundColor: 'rgba(245,158,11,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#f97316',
+    borderColor: colors.warning,
   },
   resumeTitle: {
     ...typography.bodyBold,
@@ -671,24 +845,36 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   resumeCTA: {
+    minHeight: 38,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 999,
+    borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.14,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   resumeCTAText: {
     ...typography.caption,
-    color: '#f97316',
+    color: colors.textMain,
     fontWeight: '800',
   },
   heroRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 12,
+  },
+  heroHeader: {
+    marginBottom: 0,
   },
   heroBadges: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginTop: 10,
   },
@@ -699,31 +885,223 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   heroBadgeText: {
+    ...typography.micro,
     color: colors.textMuted,
-    fontSize: 12,
     fontWeight: '700',
   },
   heroCTA: {
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primaryBright,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
   },
   heroCTAText: {
-    color: '#0b1024',
+    color: colors.textMain,
     fontWeight: '800',
     fontSize: 13,
   },
   streakCard: {
     marginBottom: spacing.md,
+  },
+  focusCard: {
+    marginBottom: spacing.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+  },
+  focusKicker: {
+    ...typography.micro,
+    color: colors.primaryBright,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  focusTitle: {
+    ...typography.title,
+    color: colors.textMain,
+    marginTop: 4,
+  },
+  focusBody: {
+    ...typography.caption,
+    color: colors.textSoft,
+    marginTop: 4,
+  },
+  focusCTA: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    minHeight: 38,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  focusCTAText: {
+    ...typography.caption,
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  quickActionsGrid: {
+    marginBottom: spacing.lg,
+    gap: 8,
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickActionCard: {
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    padding: 12,
+    minHeight: 82,
+    justifyContent: 'center',
+    gap: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  quickActionHalf: {
+    flex: 1,
+  },
+  quickActionPrimary: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.cardBorder,
+  },
+  quickActionDisabled: {
+    opacity: 0.55,
+  },
+  quickActionPrimaryTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    fontWeight: '900',
+  },
+  quickActionPrimarySub: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
+    opacity: 0.95,
+  },
+  quickActionTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  quickActionSub: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 1,
+    lineHeight: 15,
+  },
+  rhythmCard: {
+    marginBottom: spacing.lg,
+  },
+  rhythmRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  dayPill: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayPillDone: {
+    backgroundColor: 'rgba(34,197,94,0.18)',
+    borderColor: colors.accentGreen,
+  },
+  dayPillPlanned: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
+  dayPillEmpty: {
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.cardBorder,
+  },
+  dayPillToday: {
+    borderColor: colors.warning,
+    borderWidth: 2,
+  },
+  dayLabel: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  templatesQuickCard: {
+    marginBottom: spacing.lg,
+  },
+  templatesAllBtn: {
+    minHeight: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  templatesAllText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  quickTemplatesList: {
+    marginTop: 10,
+    gap: 8,
+  },
+  quickTemplateItem: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  templateColorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+  },
+  quickTemplateTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    fontWeight: '700',
+  },
+  quickTemplateMeta: {
+    ...typography.micro,
+    color: colors.textMuted,
+    marginTop: 2,
   },
   streakRow: {
     flexDirection: 'row',
@@ -738,13 +1116,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   streakBadgeText: {
     ...typography.caption,
-    color: '#fb923c',
+    color: colors.warning,
     fontWeight: '700',
   },
   streakLabel: {
@@ -758,9 +1136,9 @@ const styles = StyleSheet.create({
   streakBarBg: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     overflow: 'hidden',
   },
   streakBarFill: {
@@ -792,11 +1170,11 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 999,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   levelLabel: {
     ...typography.micro,
@@ -815,15 +1193,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 10,
     borderRadius: 999,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     overflow: 'hidden',
   },
   xpBarFill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: '#22c55e',
+    backgroundColor: colors.success,
   },
   levelHint: {
     ...typography.micro,
@@ -832,7 +1210,7 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
   },
   row: {
     flexDirection: 'row',
@@ -848,8 +1226,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    backgroundColor: '#0b1220',
-    borderColor: '#1f2937',
+    backgroundColor: colors.backgroundSoft,
+    borderColor: colors.cardBorder,
     minWidth: 70,
     alignItems: 'center',
     justifyContent: 'center',
@@ -863,11 +1241,11 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 999,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   cardTitle: {
     ...typography.title,
@@ -876,21 +1254,21 @@ const styles = StyleSheet.create({
   cardText: {
     ...typography.caption,
     color: colors.textSoft,
-    marginTop: 2,
+    marginTop: 3,
   },
 
   todayBox: {
     marginTop: 10,
-    padding: 10,
-    borderRadius: 14,
-    backgroundColor: '#0b1024',
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   todayLabel: {
     ...typography.micro,
     color: colors.textSoft,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   todayItem: {
     flexDirection: 'row',
@@ -914,11 +1292,11 @@ const styles = StyleSheet.create({
 
   restBox: {
     marginTop: 10,
-    padding: 10,
-    borderRadius: 14,
-    backgroundColor: '#0b1024',
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   restTitle: {
     ...typography.bodyBold,
@@ -928,7 +1306,7 @@ const styles = StyleSheet.create({
   restText: {
     ...typography.caption,
     color: colors.textSoft,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   weekList: {
     marginTop: 10,
@@ -940,9 +1318,9 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
     borderRadius: 14,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   weekDateCol: {
     alignItems: 'center',
@@ -977,7 +1355,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderWidth: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
   },
   weekPillText: {
     ...typography.caption,
@@ -988,37 +1366,51 @@ const styles = StyleSheet.create({
   todayButtonsRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4,
+    marginTop: 8,
   },
   buttonSmall: {
     flex: 1,
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 10,
+    minHeight: 42,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 100,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
   primaryButton: {
-    backgroundColor: colors.success, // Starta pass: grön
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryBright,
   },
   secondaryButton: {
-    backgroundColor: colors.primary, // Planera pass: lila
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.cardBorder,
   },
   outlineButton: {
-    borderWidth: 1,
-    borderColor: '#4b5563',
-    backgroundColor: 'transparent',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   buttonSmallText: {
     ...typography.caption,
     color: colors.textMain,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  buttonSmallTextOnLight: {
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  buttonSmallTextOutline: {
+    color: colors.textSoft,
   },
   noteSnippet: {
     ...typography.caption,
-    color: colors.textSoft,
-    marginTop: 6,
+    color: colors.textMuted,
+    marginTop: 8,
     marginHorizontal: 2,
   },
   exerciseChips: {
@@ -1029,9 +1421,9 @@ const styles = StyleSheet.create({
   },
   exerciseChip: {
     borderRadius: 999,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -1041,22 +1433,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   smallStartPill: {
-    paddingHorizontal: 10,
+    minHeight: 32,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
+    borderRadius: 10,
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.primaryBright,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
   },
   smallStartText: {
     ...typography.micro,
-    color: '#0b1120',
+    color: colors.textMain,
     fontWeight: '800',
   },
   deleteButton: {
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#ef4444',
+    borderColor: colors.accent,
   },
   templatePill: {
     flexDirection: 'row',
@@ -1066,8 +1465,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#312e81',
-    backgroundColor: '#1e1b4b',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
     marginTop: 4,
     alignSelf: 'flex-start',
   },
@@ -1077,7 +1476,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   templatePillText: {
-    color: '#c4b5fd',
+    color: colors.primaryBright,
     fontSize: 11,
     fontWeight: '700',
   },

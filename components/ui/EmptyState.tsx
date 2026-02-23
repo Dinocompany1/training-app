@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { colors, typography } from '../../constants/theme';
+import { colors, radii, typography } from '../../constants/theme';
 
 type Props = {
   title: string;
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: radii.button,
     borderWidth: 1,
     borderColor: colors.primary,
     backgroundColor: colors.iconBg,

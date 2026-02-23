@@ -1,86 +1,75 @@
-# Welcome to your Expo app 👋
+# Training App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native/Expo app for workout planning, quick sessions, routines, calendar, stats, and AI coach.
 
-## Get started
+## Setup
 
 1. Install dependencies
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-
-## AI Coach backend (human-like chat)
-
-The app can run in two modes:
-
-- `fallback` (local rule-based replies)
-- `remote` (real LLM conversation)
-
-To get real conversational responses, run the included proxy server and connect it from Expo env.
-
-1. Start backend proxy
+2. Create local env
 
 ```bash
-OPENAI_API_KEY=your_key_here npm run ai:chat-server
+cp .env.example .env
 ```
 
-Optional:
+3. Start dev client
 
 ```bash
-OPENAI_MODEL=gpt-4.1-mini PORT=8787 OPENAI_API_KEY=your_key_here npm run ai:chat-server
+npx expo start --dev-client --host localhost
 ```
 
-2. Point app to backend
+## iOS Run
 
-Add in your Expo env:
+First build native app once:
 
 ```bash
-EXPO_PUBLIC_AI_CHAT_URL=http://localhost:8787/ai-chat
+npx expo run:ios
 ```
 
-3. Restart Expo (`npm start`) so env changes apply.
+Then use Metro:
 
-Notes:
+```bash
+npx expo start --dev-client --host localhost
+```
 
-- On a physical phone, `localhost` means the phone itself. Use your computer LAN IP instead, e.g. `http://192.168.1.50:8787/ai-chat`.
-- Keep `OPENAI_API_KEY` only on backend/server side. Do not put it in Expo public env.
+## Quality Gates
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npm run doctor
+```
+
+## Environment Variables
+
+- `EXPO_PUBLIC_AI_CHAT_URL` (optional): AI backend endpoint.
+- `EXPO_PUBLIC_SUPABASE_URL` (optional): Supabase project URL for cloud sync.
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` (optional): Supabase anon key.
+- `EXPO_PUBLIC_PRIVACY_POLICY_URL` (optional): Public privacy policy URL.
+- `EXPO_PUBLIC_TERMS_URL` (optional): Public terms URL.
+- `EXPO_PUBLIC_SUPPORT_EMAIL` (optional): Support email shown in app.
+
+For the Supabase Edge Function AI endpoint, authenticate requests with the app user's
+`Authorization: Bearer <access_token>` header and set `AI_CHAT_JWT_SECRET` on the function runtime.
+For distributed rate limiting across edge instances, also set
+`AI_CHAT_RATE_LIMIT_REDIS_URL` and `AI_CHAT_RATE_LIMIT_REDIS_TOKEN` on the function runtime.
+
+Never put server-only secrets in Expo public env variables.
+
+## Prelaunch
+
+Use the checklist before TestFlight:
+
+- `docs/PRELAUNCH_CHECKLIST.md`
+- `docs/TEST_PLAN.md`
+- `docs/RELEASE_NOTES_TEMPLATE.md`
+
+Legal templates to publish before App Store submission:
+
+- `docs/PRIVACY_POLICY.md`
+- `docs/TERMS_OF_USE.md`

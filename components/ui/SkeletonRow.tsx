@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, DimensionValue } from 'react-native';
+import { Animated, DimensionValue, StyleSheet } from 'react-native';
+import { colors } from '../../constants/theme';
 
 type Props = {
   width?: DimensionValue;
@@ -7,12 +8,33 @@ type Props = {
 };
 
 export default function SkeletonRow({ width = '100%', height = 12 }: Props) {
-  return <View style={[styles.shimmer, { width, height }]} />;
+  const opacity = React.useRef(new Animated.Value(0.5)).current;
+
+  React.useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.8,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.5,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return <Animated.View style={[styles.shimmer, { width, height, opacity }]} />;
 }
 
 const styles = StyleSheet.create({
   shimmer: {
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     borderRadius: 8,
     marginVertical: 4,
   },

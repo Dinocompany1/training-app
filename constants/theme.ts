@@ -50,6 +50,27 @@ export const spacing = {
   xxxl: 48,
 } as const;
 
+export const radii = {
+  button: 12,
+  card: 18,
+  pill: 12,
+} as const;
+
+export const layout = {
+  sectionGap: 12,
+  sectionGapLg: 16,
+  inputGap: 8,
+} as const;
+
+export const inputs = {
+  height: 44,
+  radius: 12,
+  paddingX: 12,
+  paddingY: 10,
+  borderColor: '#334155',
+  background: '#020617',
+} as const;
+
 export const gradients = {
   appBackground: ['#030312', '#050414', '#0a0820'] as const,
   progress: ['#a855f7', '#7c3aed'] as const,
@@ -57,6 +78,51 @@ export const gradients = {
   streak: ['#7c3aed', '#c084fc'] as const,
   outlineFill: ['#0b0a1f', '#0f1024'] as const,
 };
+
+export const uiTones = {
+  neutral: {
+    border: '#334155',
+    background: 'rgba(15,23,42,0.94)',
+    text: '#93a5bf',
+    kicker: '#93c5fd',
+  },
+  blue: {
+    border: '#375a8a',
+    background: 'rgba(12,22,44,0.95)',
+    text: '#93c5fd',
+    kicker: '#bfdbfe',
+  },
+  green: {
+    border: '#2c6a4a',
+    background: 'rgba(9,31,24,0.95)',
+    text: '#86efac',
+    kicker: '#bbf7d0',
+  },
+  amber: {
+    border: '#7c5a2a',
+    background: 'rgba(41,26,12,0.95)',
+    text: '#fcd34d',
+    kicker: '#fde68a',
+  },
+  rose: {
+    border: '#7a4057',
+    background: 'rgba(45,17,31,0.95)',
+    text: '#f9a8d4',
+    kicker: '#fbcfe8',
+  },
+  violet: {
+    border: '#5b4b90',
+    background: 'rgba(26,20,52,0.95)',
+    text: '#c4b5fd',
+    kicker: '#ddd6fe',
+  },
+  teal: {
+    border: '#2c6b69',
+    background: 'rgba(9,33,34,0.95)',
+    text: '#5eead4',
+    kicker: '#99f6e4',
+  },
+} as const;
 
 // Legacy compatibility for Expo starter files that reference Colors.light/dark.
 export const Colors = {

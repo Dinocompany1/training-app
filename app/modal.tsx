@@ -1,12 +1,14 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { colors } from '../constants/theme';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { colors, gradients } from '../constants/theme';
 import { useTranslation } from '../context/TranslationContext';
+import BackPill from '../components/ui/BackPill';
 
 export default function ModalScreen() {
-  const router = useRouter();
   const { t } = useTranslation();
   const { uri } = useLocalSearchParams<{ uri?: string }>();
 
@@ -14,9 +16,10 @@ export default function ModalScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TouchableOpacity style={styles.close} onPress={() => router.back()}>
-        <Text style={styles.closeText}>{t('common.close')}</Text>
-      </TouchableOpacity>
+      <LinearGradient colors={gradients.appBackground} style={StyleSheet.absoluteFill} />
+      <View style={styles.headerRow}>
+        <BackPill />
+      </View>
       {safeUri ? (
         <Image source={{ uri: safeUri }} style={styles.image} contentFit="contain" />
       ) : (
@@ -31,24 +34,15 @@ export default function ModalScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#020617',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  close: {
+  headerRow: {
     position: 'absolute',
-    top: 16,
-    right: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#111827',
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  closeText: {
-    color: colors.textMain,
-    fontWeight: '700',
+    top: 12,
+    left: 12,
+    zIndex: 2,
   },
   image: {
     width: '100%',

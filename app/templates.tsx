@@ -2,20 +2,22 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Play, Trash2 } from 'lucide-react-native';
-import React from 'react';
+import { Play, Search, Trash2 } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
-  SafeAreaView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../components/ui/GlassCard';
-import NeonButton from '../components/ui/NeonButton';
-import { colors, gradients, typography } from '../constants/theme';
+import AppButton from '../components/ui/AppButton';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { colors, gradients, layout, radii, spacing, typography } from '../constants/theme';
 import { Template, useWorkouts } from '../context/WorkoutsContext';
 import { toast } from '../utils/toast';
 import { useTranslation } from '../context/TranslationContext';
@@ -25,6 +27,54 @@ export default function TemplatesScreen() {
   const { templates, removeTemplate, addTemplate } = useWorkouts();
   const router = useRouter();
   const { t } = useTranslation();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeMuscle, setActiveMuscle] = useState('__all__');
+  const [sortBy, setSortBy] = useState<'recent' | 'name' | 'exercises'>('recent');
+  const totalExercises = templates.reduce((sum, tpl) => sum + tpl.exercises.length, 0);
+  const muscleFilters = useMemo(() => {
+    const set = new Set<string>();
+    templates.forEach((tpl) =>
+      tpl.exercises.forEach((ex) => set.add((ex.muscleGroup || 'Övrigt').trim() || 'Övrigt'))
+    );
+    return [
+      { key: '__all__', label: t('templates.filterAll') },
+      ...Array.from(set)
+        .sort()
+        .map((muscle) => ({ key: muscle, label: muscle })),
+    ];
+  }, [templates, t]);
+  const filteredTemplates = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return templates.filter((tpl) => {
+      const matchText =
+        query.length === 0 ||
+        tpl.name.toLowerCase().includes(query) ||
+        (tpl.description || '').toLowerCase().includes(query) ||
+        tpl.exercises.some((ex) => ex.name.toLowerCase().includes(query));
+      const matchMuscle =
+        activeMuscle === '__all__' ||
+        tpl.exercises.some(
+          (ex) => ((ex.muscleGroup || 'Övrigt').trim() || 'Övrigt') === activeMuscle
+        );
+      return matchText && matchMuscle;
+    });
+  }, [activeMuscle, searchQuery, templates]);
+  const sortedTemplates = useMemo(() => {
+    const list = [...filteredTemplates];
+    const sourceOrder = new Map<string, number>(
+      templates.map((template, index) => [template.id, index])
+    );
+    if (sortBy === 'name') {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'sv'));
+      return list;
+    }
+    if (sortBy === 'exercises') {
+      list.sort((a, b) => b.exercises.length - a.exercises.length);
+      return list;
+    }
+    list.sort((a, b) => (sourceOrder.get(b.id) ?? 0) - (sourceOrder.get(a.id) ?? 0));
+    return list;
+  }, [filteredTemplates, sortBy, templates]);
 
   const handleDelete = (template: Template) => {
     Alert.alert(
@@ -38,18 +88,17 @@ export default function TemplatesScreen() {
           onPress: () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             removeTemplate(template.id);
-            toast(t('templates.deletedToast'));
-            Alert.alert(t('templates.deletedTitle'), t('templates.deletedBody'), [
-              {
-                text: t('templates.undo'),
-                style: 'default',
+            toast({
+              message: t('templates.deletedToast'),
+              action: {
+                label: t('templates.undo'),
                 onPress: () => {
                   Haptics.selectionAsync();
                   addTemplate(template);
+                  toast(t('common.restored'));
                 },
               },
-              { text: t('templates.ok'), style: 'default' },
-            ]);
+            });
           },
         },
       ]
@@ -61,30 +110,105 @@ export default function TemplatesScreen() {
       <LinearGradient colors={gradients.appBackground} style={styles.full}>
         <View style={styles.spotlight} />
         <FlatList
-          data={templates}
+          data={sortedTemplates}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.container}
           ListHeaderComponent={
             <View style={styles.header}>
               <BackPill onPress={() => router.back()} />
-              <Text style={styles.title}>{t('templates.title')}</Text>
-              <Text style={styles.subtitle}>
-                {t('templates.subtitle')}
-              </Text>
-              <NeonButton
+              <ScreenHeader title={t('templates.title')} subtitle={t('templates.subtitle')} tone="blue" />
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>{t('templates.summaryRoutines')}</Text>
+                  <Text style={styles.summaryValue}>{templates.length}</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>{t('templates.summaryExercises')}</Text>
+                  <Text style={styles.summaryValue}>{totalExercises}</Text>
+                </View>
+              </View>
+              <View style={styles.searchWrap}>
+                <Search size={15} color={colors.textSoft} />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder={t('templates.searchPlaceholder')}
+                  placeholderTextColor={colors.textSoft}
+                  style={styles.searchInput}
+                />
+              </View>
+              <View style={styles.filterRow}>
+                {muscleFilters.map((muscle) => {
+                  const active = muscle.key === activeMuscle;
+                  return (
+                    <TouchableOpacity
+                      key={muscle.key}
+                      style={[styles.filterChip, active && styles.filterChipActive]}
+                      onPress={() => {
+                        Haptics.selectionAsync();
+                        setActiveMuscle(muscle.key);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                        {muscle.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={styles.sortRow}>
+                <TouchableOpacity
+                  style={[styles.sortChip, sortBy === 'recent' && styles.sortChipActive]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSortBy('recent');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.sortChipText, sortBy === 'recent' && styles.sortChipTextActive]}>
+                    {t('templates.sortRecent')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sortChip, sortBy === 'name' && styles.sortChipActive]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSortBy('name');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.sortChipText, sortBy === 'name' && styles.sortChipTextActive]}>
+                    {t('templates.sortName')}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sortChip, sortBy === 'exercises' && styles.sortChipActive]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setSortBy('exercises');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.sortChipText,
+                      sortBy === 'exercises' && styles.sortChipTextActive,
+                    ]}
+                  >
+                    {t('templates.sortExercises')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <AppButton
                 title={t('templates.createCta')}
+                variant="primary"
                 onPress={() => {
                   Haptics.selectionAsync();
                   router.push('/routine-builder');
+                  toast(t('templates.createToast'));
                 }}
-                style={{
-                  marginTop: 8,
-                  shadowOpacity: 0.12,
-                  shadowRadius: 6,
-                  shadowOffset: { width: 0, height: 3 },
-                  elevation: 3,
-                }}
-                toastMessage={t('templates.createToast')}
+                style={{ marginTop: 8 }}
               />
             </View>
           }
@@ -100,11 +224,12 @@ export default function TemplatesScreen() {
                   </Text>
                 </View>
                 <TouchableOpacity
+                  style={styles.deleteButton}
                   onPress={() => handleDelete(item)}
                   accessibilityLabel={t('templates.removeA11y', undefined, item.name)}
                   accessibilityRole="button"
                 >
-                  <Trash2 size={18} color="#fca5a5" />
+                  <Trash2 size={16} color="#fca5a5" />
                 </TouchableOpacity>
               </View>
               <View style={styles.exerciseRow}>
@@ -135,7 +260,7 @@ export default function TemplatesScreen() {
                     });
                   }}
                 >
-                  <Play size={16} color="#022c22" />
+                  <Play size={15} color={colors.textMain} />
                   <Text style={styles.primaryText}>{t('templates.start')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -151,6 +276,18 @@ export default function TemplatesScreen() {
               </View>
             </GlassCard>
           )}
+        ListEmptyComponent={
+          <GlassCard style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>
+              {templates.length === 0 ? t('templates.title') : t('templates.searchNoResultsTitle')}
+            </Text>
+            <Text style={styles.emptyText}>
+              {templates.length === 0
+                ? t('templates.subtitle')
+                : t('templates.searchNoResultsSubtitle')}
+            </Text>
+          </GlassCard>
+        }
         ListFooterComponent={<View style={{ height: 40 }} />}
         showsVerticalScrollIndicator={false}
       />
@@ -178,12 +315,112 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
   container: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: 24,
   },
   header: {
-    marginBottom: 12,
+    marginBottom: layout.sectionGap,
+  },
+  summaryCard: {
+    marginTop: 8,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: 'rgba(8,14,26,0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  summaryItem: {
+    flex: 1,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: '#0a1322',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  summaryLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  summaryValue: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    marginTop: 2,
+  },
+  searchWrap: {
+    marginTop: 10,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#324762',
+    backgroundColor: '#0a1422',
+    minHeight: 42,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.textMain,
+    ...typography.body,
+  },
+  filterRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChip: {
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#324762',
+    backgroundColor: '#0a1422',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  filterChipActive: {
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+  },
+  filterChipText: {
+    ...typography.caption,
+    color: colors.textSoft,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: colors.textMain,
+  },
+  sortRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sortChip: {
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#0f172a',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  sortChipActive: {
+    borderColor: '#4ade80',
+    backgroundColor: '#14532d',
+  },
+  sortChipText: {
+    ...typography.caption,
+    color: colors.textSoft,
+    fontWeight: '600',
+  },
+  sortChipTextActive: {
+    color: '#bbf7d0',
   },
   title: {
     ...typography.display,
@@ -196,7 +433,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   card: {
-    marginBottom: 10,
+    marginBottom: layout.sectionGap,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -205,10 +442,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   colorDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 999,
+    width: 15,
+    height: 15,
+    borderRadius: radii.button,
     backgroundColor: colors.primary,
+    borderWidth: 1,
+    borderColor: '#d5e2f2',
   },
   cardTitle: {
     ...typography.title,
@@ -218,6 +457,17 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSoft,
     marginTop: 2,
+    lineHeight: 18,
+  },
+  deleteButton: {
+    width: 30,
+    height: 30,
+    borderRadius: radii.button,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#08111f',
+    borderWidth: 1,
+    borderColor: '#2c3f58',
   },
   exerciseRow: {
     flexDirection: 'row',
@@ -226,49 +476,50 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   exerciseTag: {
-    backgroundColor: '#0b1220',
+    backgroundColor: '#0a1422',
     color: colors.textSoft,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
+    paddingVertical: 5,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#324762',
     fontSize: 11,
   },
   actionsRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 10,
+    marginTop: 12,
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    borderRadius: 999,
+    borderRadius: radii.button,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    minHeight: 44,
     borderWidth: 1,
   },
   primaryChip: {
-    backgroundColor: colors.success, // Starta pass: grön
-    borderColor: colors.success,
+    backgroundColor: '#0a1422',
+    borderColor: '#334a67',
     flex: 1,
     justifyContent: 'center',
   },
   secondaryChip: {
-    backgroundColor: colors.primary, // Planera pass: lila
-    borderColor: colors.primary,
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
   },
   primaryText: {
     ...typography.bodyBold,
-    color: '#022c22',
+    color: colors.textMain,
   },
   secondaryText: {
     ...typography.bodyBold,
-    color: '#0b1120',
+    color: colors.textMain,
   },
   emptyCard: {
-    marginTop: 10,
+    marginTop: 12,
   },
   emptyTitle: {
     ...typography.title,

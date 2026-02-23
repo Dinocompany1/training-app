@@ -4,6 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Calendar as CalendarIcon,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2,
   Dumbbell,
   Palette,
@@ -12,7 +14,6 @@ import {
 } from 'lucide-react-native';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -21,20 +22,24 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-  SafeAreaView,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import GlassCard from '../components/ui/GlassCard';
+import AppButton from '../components/ui/AppButton';
+import ScreenHeader from '../components/ui/ScreenHeader';
 import { EXERCISE_LIBRARY } from '../constants/exerciseLibrary';
-import { colors, gradients, typography } from '../constants/theme';
+import { colors, gradients, inputs, layout, radii, spacing, typography } from '../constants/theme';
 import { Exercise, Template, useWorkouts } from '../context/WorkoutsContext';
 import ExerciseDetailCard from '../components/ui/ExerciseDetailCard';
 import { toast } from '../utils/toast';
 import ExerciseLibrary from '../components/ui/ExerciseLibrary';
 import { useTranslation } from '../context/TranslationContext';
 import BackPill from '../components/ui/BackPill';
-import { addDaysISO, parseISODate, todayISO } from '../utils/date';
+import { compareISODate, parseISODate, todayISO } from '../utils/date';
+import { createId } from '../utils/id';
+import { sortWorkoutsByRecencyDesc } from '../utils/workoutRecency';
 
 const MUSCLE_MAP: Record<string, string> = {
   Bröst: 'Bröst',
@@ -57,11 +62,12 @@ const COLOR_OPTIONS = [
 ];
 
 type CalendarDay = { dateString: string };
+type FocusedField = 'title' | 'notes' | 'customName' | null;
 
 export default function ScheduleWorkoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { addWorkout, updateWorkout, templates, customExercises, workouts } = useWorkouts();
+  const { addWorkout, updateWorkout, removeWorkout, templates, customExercises, workouts } = useWorkouts();
   const { t } = useTranslation();
   const editingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
@@ -70,11 +76,19 @@ export default function ScheduleWorkoutScreen() {
   const [notes, setNotes] = useState('');
   const [titleError, setTitleError] = useState('');
   const [notesError, setNotesError] = useState('');
+  const [focusedField, setFocusedField] = useState<FocusedField>(null);
   const [color, setColor] = useState<string>('#3b82f6');
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [dateError, setDateError] = useState('');
   const [weightError, setWeightError] = useState('');
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [pendingSavePayload, setPendingSavePayload] = useState<{
+    finalDates: string[];
+    normalizedExercises: Exercise[];
+    trimmedTitle: string;
+    conflictingIds: string[];
+  } | null>(null);
   const [calendarSeedDate, setCalendarSeedDate] = useState<string>(todayISO());
   const openDatePicker = (seed?: string) => {
     const next = seed && isValidDate(seed) ? seed : todayISO();
@@ -84,12 +98,56 @@ export default function ScheduleWorkoutScreen() {
 
   // Datum-hantering: flera datum för samma pass
   const todayStr = todayISO();
-  const [dateInput, setDateInput] = useState(todayStr);
-  const [dates, setDates] = useState<string[]>([todayStr]);
-  const quickDates = [
-    todayStr,
-    addDaysISO(todayStr, 1),
-  ];
+  const [dateInput, setDateInput] = useState('');
+  const [dates, setDates] = useState<string[]>([]);
+
+  const completedWorkouts = useMemo(
+    () =>
+      sortWorkoutsByRecencyDesc((workouts || []).filter((w) => w.isCompleted)),
+    [workouts]
+  );
+  const latestCompletedWorkout = completedWorkouts[0];
+
+  const latestWorkoutExercises = useMemo(() => {
+    if (!latestCompletedWorkout?.exercises?.length) return [];
+    const seen = new Set<string>();
+    return latestCompletedWorkout.exercises
+      .filter((ex) => {
+        const key = ex.name.trim().toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((ex) => ({ name: ex.name, muscleGroup: ex.muscleGroup }));
+  }, [latestCompletedWorkout]);
+
+  const suggestionsByExercise = useMemo(() => {
+    const byName = new Map<
+      string,
+      { muscleGroup?: string; sets: { reps: string; weight: number }[] }
+    >();
+    completedWorkouts.forEach((workout) => {
+      workout.exercises?.forEach((ex) => {
+        const key = ex.name.trim().toLowerCase();
+        if (!key || byName.has(key)) return;
+        const sets =
+          ex.performedSets && ex.performedSets.length > 0
+            ? ex.performedSets.map((s) => ({
+                reps: s.reps || ex.reps || '10',
+                weight: Number.isFinite(Number(s.weight)) ? Number(s.weight) : 0,
+              }))
+            : buildInitialPerformedSets(ex.sets, ex.reps, ex.weight).map((s) => ({
+                reps: s.reps,
+                weight: Number.isFinite(Number(s.weight)) ? Number(s.weight) : 0,
+              }));
+        byName.set(key, {
+          muscleGroup: ex.muscleGroup,
+          sets: sets.length > 0 ? sets : [{ reps: '10', weight: 0 }],
+        });
+      });
+    });
+    return byName;
+  }, [completedWorkouts]);
 
   const mergedLibrary = useMemo(() => {
     const base = EXERCISE_LIBRARY.map((g) => ({ ...g, exercises: [...g.exercises] }));
@@ -128,7 +186,7 @@ export default function ScheduleWorkoutScreen() {
       setSelectedTemplateId(existing.sourceTemplateId);
     }
     const mapped = (existing.exercises || []).map((ex) => ({
-      id: ex.id || `${ex.name}-${Math.random()}`,
+      id: ex.id || createId('sw-existing'),
       name: ex.name,
       sets: ex.sets,
       reps: ex.reps,
@@ -146,7 +204,7 @@ export default function ScheduleWorkoutScreen() {
     setTitle((prev) => (prev ? prev : template.name));
     setColor(template.color);
     const mapped = template.exercises.map((ex) => ({
-      id: `${ex.name}-${Date.now()}-${Math.random()}`,
+      id: createId('sw-template'),
       name: ex.name,
       sets: ex.sets,
       reps: ex.reps,
@@ -171,12 +229,14 @@ export default function ScheduleWorkoutScreen() {
   const sanitizeNumericInput = (value: string) =>
     value.replace(/[^0-9.,-]/g, '').replace(',', '.');
 
-  const buildInitialPerformedSets = (sets: number, reps: string, weight: number) =>
-    Array.from({ length: Math.max(1, sets || 1) }).map(() => ({
+  function buildInitialPerformedSets(sets: number, reps: string, weight: number) {
+    return Array.from({ length: Math.max(1, sets || 1) }).map(() => ({
       reps: reps || '10',
       weight: weight || 0,
       done: false,
     }));
+  }
+
 
   const addDate = () => {
     Haptics.selectionAsync();
@@ -185,9 +245,13 @@ export default function ScheduleWorkoutScreen() {
       setDateError(t('schedule.dateFormat'));
       return;
     }
+    if (compareISODate(trimmed, todayStr) < 0) {
+      setDateError(t('schedule.datePast'));
+      return;
+    }
     setDateError('');
     if (dates.includes(trimmed)) {
-      Alert.alert(t('schedule.errorTitle'), t('schedule.dateExists'));
+      toast(t('schedule.dateExists'));
       return;
     }
     setDates((prev) => [...prev, trimmed].sort());
@@ -196,44 +260,84 @@ export default function ScheduleWorkoutScreen() {
 
   const handleCalendarSelect = (day: CalendarDay) => {
     const iso = day.dateString;
-    setDateInput(iso);
+    if (compareISODate(iso, todayStr) < 0) {
+      setDateError(t('schedule.datePast'));
+      return;
+    }
     setCalendarSeedDate(iso);
     setDateError('');
     setDates((prev) => {
+      if (prev.includes(iso)) {
+        const next = prev.filter((d) => d !== iso).sort();
+        setDateInput(next[next.length - 1] || '');
+        return next;
+      }
       const merged = new Set(prev);
       merged.add(iso);
-      return Array.from(merged).sort();
+      const next = Array.from(merged).sort();
+      setDateInput(iso);
+      return next;
     });
-    setShowCalendarPicker(false);
     Haptics.selectionAsync();
   };
+
+  const calendarMarkedDates = useMemo(() => {
+    const marks: Record<string, { selected: boolean; selectedColor: string; selectedTextColor: string }> = {};
+    dates.forEach((d) => {
+      marks[d] = {
+        selected: true,
+        selectedColor: colors.primary,
+        selectedTextColor: colors.background,
+      };
+    });
+    return marks;
+  }, [dates]);
 
   const removeDate = (d: string) => {
     Haptics.selectionAsync();
-    if (dates.length === 1) {
-      Alert.alert(t('schedule.errorTitle'), t('schedule.dateMin'));
-      return;
-    }
-    setDates((prev) => prev.filter((x) => x !== d));
+    setDates((prev) => {
+      const next = prev.filter((x) => x !== d);
+      if (dateInput === d) setDateInput(next[next.length - 1] || '');
+      return next;
+    });
   };
 
-  const toggleExerciseFromLibrary = (name: string) => {
+  const clearAllDates = () => {
+    setDates([]);
+    setDateInput('');
+    setDateError('');
+    Haptics.selectionAsync();
+  };
+
+  const buildExerciseFromName = (name: string, group?: string): Exercise => {
+    const suggestion = suggestionsByExercise.get(name.trim().toLowerCase());
+    const suggestedSets =
+      suggestion?.sets && suggestion.sets.length > 0
+        ? suggestion.sets.map((s) => ({
+            reps: s.reps || '10',
+            weight: Number.isFinite(Number(s.weight)) ? Number(s.weight) : 0,
+            done: false,
+          }))
+        : buildInitialPerformedSets(1, '10', 0);
+    const first = suggestedSets[0];
+    return {
+      id: createId('sw-lib'),
+      name,
+      sets: suggestedSets.length,
+      reps: first?.reps || '10',
+      weight: first?.weight ?? 0,
+      muscleGroup: normalizeMuscleGroup(group || suggestion?.muscleGroup || '', t),
+      performedSets: suggestedSets,
+    };
+  };
+
+  const toggleExerciseFromLibrary = (name: string, group?: string) => {
     const exists = selectedExercises.find((e) => e.name === name);
     if (exists) {
       setSelectedExercises((prev) => prev.filter((e) => e.name !== name));
     } else {
-      const group = mergedLibrary.find((g) =>
-        g.exercises.some((ex) => ex.name === name)
-      );
-      const newExercise: Exercise = {
-        id: Date.now().toString() + name,
-        name,
-        sets: 1,
-        reps: '10',
-        weight: 0,
-        muscleGroup: normalizeMuscleGroup(group?.group || '', t),
-        performedSets: buildInitialPerformedSets(1, '10', 0),
-      };
+      const libGroup = group || mergedLibrary.find((g) => g.exercises.some((ex) => ex.name === name))?.group;
+      const newExercise: Exercise = buildExerciseFromName(name, libGroup);
       setSelectedExercises((prev) => [...prev, newExercise]);
     }
   };
@@ -241,19 +345,11 @@ export default function ScheduleWorkoutScreen() {
   const handleAddCustomExercise = () => {
     const trimmed = customName.trim();
     if (!trimmed) {
-      Alert.alert(t('common.error'), t('schedule.customNameError'));
+      toast(t('schedule.customNameError'));
       return;
     }
 
-    const newExercise: Exercise = {
-      id: Date.now().toString() + trimmed,
-      name: trimmed,
-      sets: 1,
-      reps: '10',
-      weight: 0,
-      muscleGroup: t('exercises.groups.Övrigt'),
-      performedSets: buildInitialPerformedSets(1, '10', 0),
-    };
+    const newExercise: Exercise = buildExerciseFromName(trimmed, t('exercises.groups.Övrigt'));
 
     setSelectedExercises((prev) => [...prev, newExercise]);
     setCustomName('');
@@ -264,15 +360,53 @@ export default function ScheduleWorkoutScreen() {
     setSelectedExercises((prev) => prev.filter((e) => e.id !== id));
   };
 
+  const moveExercise = (index: number, direction: 'up' | 'down') => {
+    const target = direction === 'up' ? index - 1 : index + 1;
+    setSelectedExercises((prev) => {
+      if (target < 0 || target >= prev.length) return prev;
+      const copy = [...prev];
+      const [item] = copy.splice(index, 1);
+      copy.splice(target, 0, item);
+      return copy;
+    });
+    Haptics.selectionAsync();
+  };
+
   const handleConfirmExercises = () => {
     if (selectedExercises.length === 0) {
-      Alert.alert(t('schedule.errorTitle'), t('schedule.noExercisesSelect'));
+      toast(t('schedule.noExercisesSelect'));
       return;
     }
     setShowDetails(true);
     setShowExerciseList(false);
     setShowCustomInput(false);
   };
+
+  const addLatestExercise = (name: string, muscleGroup?: string) => {
+    const exists = selectedExercises.some((e) => e.name.toLowerCase() === name.toLowerCase());
+    if (exists) {
+      toast(t('schedule.latestExists', undefined, name));
+      return;
+    }
+    setSelectedExercises((prev) => [...prev, buildExerciseFromName(name, muscleGroup)]);
+    Haptics.selectionAsync();
+    toast(t('schedule.latestAdded', undefined, name));
+  };
+
+  const plannedSummary = useMemo(() => {
+    const firstDate = [...dates].sort()[0] || dateInput;
+    return t('schedule.planSummary', undefined, {
+      workouts: dates.length,
+      exercises: selectedExercises.length,
+      firstDate: firstDate || '-',
+    });
+  }, [t, dates, dateInput, selectedExercises.length]);
+
+  const isReadyToSave = useMemo(() => {
+    const hasDate = dates.length > 0 || isValidDate(dateInput);
+    const hasExercises = selectedExercises.length > 0;
+    return hasDate && hasExercises;
+  }, [dates.length, dateInput, selectedExercises.length]);
 
   const updateExerciseField = (
     id: string,
@@ -290,6 +424,8 @@ export default function ScheduleWorkoutScreen() {
                   ? clean
                   : field === 'reps'
                   ? clean
+                  : field === 'muscleGroup'
+                  ? normalizeMuscleGroup(clean, t)
                   : Number(clean) || 0,
             }
           : ex
@@ -367,14 +503,57 @@ export default function ScheduleWorkoutScreen() {
     );
   };
 
+  const persistPlannedWorkouts = (
+    finalTitle: string,
+    finalDates: string[],
+    normalizedExercises: Exercise[],
+    mode: 'keep-both' | 'replace'
+  ) => {
+    if (mode === 'replace') {
+      const plannedConflicts = (workouts || []).filter(
+        (w) =>
+          !w.isCompleted &&
+          finalDates.includes(w.date) &&
+          (!editingId || w.id !== editingId)
+      );
+      plannedConflicts.forEach((w) => removeWorkout(w.id));
+    }
+    if (editingId) {
+      updateWorkout({
+        id: editingId,
+        title: finalTitle,
+        date: finalDates[0] || todayStr,
+        notes: notes.trim() || undefined,
+        exercises: normalizedExercises,
+        color,
+        isCompleted: false,
+        sourceTemplateId: selectedTemplateId || undefined,
+      });
+    } else {
+      finalDates.forEach((date) => {
+        addWorkout({
+          id: createId('sw-plan'),
+          title: finalTitle,
+          date,
+          notes: notes.trim() || undefined,
+          exercises: normalizedExercises,
+          color,
+          isCompleted: false,
+          sourceTemplateId: selectedTemplateId || undefined,
+        });
+      });
+    }
+    setPendingSavePayload(null);
+    setShowConflictModal(false);
+    toast(t('schedule.savedToast'));
+    toast(t('schedule.savedBody'));
+    router.push('/(tabs)/calendar');
+  };
+
   const handleSavePlannedWorkouts = () => {
     Haptics.selectionAsync();
     const trimmedTitle = title.trim();
-
-    if (!trimmedTitle) {
-      setTitleError(t('schedule.titleError'));
-      return;
-    }
+    const finalTitle = trimmedTitle || t('schedule.defaultTitle');
     setTitleError('');
 
     const finalDatesSet = new Set(dates);
@@ -384,12 +563,16 @@ export default function ScheduleWorkoutScreen() {
     const finalDates = Array.from(finalDatesSet).sort();
 
     if (finalDates.length === 0) {
-      Alert.alert(t('schedule.errorTitle'), t('schedule.dateRequired'));
+      toast(t('schedule.dateRequired'));
+      return;
+    }
+    if (finalDates.some((d) => compareISODate(d, todayStr) < 0)) {
+      toast(t('schedule.datePast'));
       return;
     }
 
     if (selectedExercises.length === 0) {
-      Alert.alert(t('schedule.errorTitle'), t('schedule.noExercises'));
+      toast(t('schedule.noExercises'));
       return;
     }
 
@@ -410,46 +593,28 @@ export default function ScheduleWorkoutScreen() {
         performedSets: plannedSets,
         sets: plannedSets.length,
         reps: first?.reps || ex.reps,
-        weight:
-          first?.weight !== undefined ? first.weight : ex.weight,
+        weight: first?.weight !== undefined ? first.weight : ex.weight,
       };
     });
 
-    if (editingId) {
-      updateWorkout({
-        id: editingId,
-        title: trimmedTitle,
-        date: finalDates[0] || todayStr,
-        notes: notes.trim() || undefined,
-        exercises: normalizedExercises,
-        color,
-        isCompleted: false,
-        sourceTemplateId: selectedTemplateId || undefined,
+    const conflictingPlanned = (workouts || []).filter(
+      (w) =>
+        !w.isCompleted &&
+        finalDates.includes(w.date) &&
+        (!editingId || w.id !== editingId)
+    );
+    if (conflictingPlanned.length > 0) {
+      setPendingSavePayload({
+        finalDates,
+        normalizedExercises,
+        trimmedTitle: finalTitle,
+        conflictingIds: conflictingPlanned.map((w) => w.id),
       });
-    } else {
-      finalDates.forEach((date) => {
-        addWorkout({
-          id: Date.now().toString() + date,
-          title: trimmedTitle,
-          date,
-          notes: notes.trim() || undefined,
-          exercises: normalizedExercises,
-          color,
-          isCompleted: false,
-          sourceTemplateId: selectedTemplateId || undefined,
-        });
-      });
+      setShowConflictModal(true);
+      return;
     }
 
-    toast(t('schedule.savedToast'));
-    Alert.alert(t('schedule.savedTitle'), t('schedule.savedBody'), [
-      {
-        text: t('schedule.openCalendar'),
-        style: 'default',
-        onPress: () => router.replace('/(tabs)/calendar'),
-      },
-      { text: t('schedule.stay'), style: 'cancel' },
-    ]);
+    persistPlannedWorkouts(finalTitle, finalDates, normalizedExercises, 'keep-both');
   };
 
   return (
@@ -470,10 +635,24 @@ export default function ScheduleWorkoutScreen() {
           <View style={{ paddingBottom: 6 }}>
             <BackPill onPress={() => router.back()} />
           </View>
-          <Text style={styles.title}>{t('schedule.title')}</Text>
-          <Text style={styles.subtitle}>
-            {t('schedule.subtitle')}
-          </Text>
+          <ScreenHeader title={t('schedule.title')} subtitle={t('schedule.subtitle')} tone="amber" />
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('schedule.nameLabel')}</Text>
+              <Text numberOfLines={1} style={styles.summaryValue}>
+                {title.trim() || '...'}
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('schedule.dateLabel')}</Text>
+              <Text style={styles.summaryValue}>{dates.length}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>{t('schedule.exercisesTitle')}</Text>
+              <Text style={styles.summaryValue}>{selectedExercises.length}</Text>
+            </View>
+          </View>
+          <Text style={styles.summaryMeta}>{plannedSummary}</Text>
 
           {/* CARD 1 – PASSINFO + DATUM */}
           <GlassCard style={styles.card}>
@@ -499,7 +678,7 @@ export default function ScheduleWorkoutScreen() {
                     { backgroundColor: color || '#3b82f6' },
                   ]}
                 >
-                  <Palette size={16} color="#0b1120" />
+                  <Palette size={15} color="#0b1120" />
                 </View>
               </TouchableOpacity>
             </View>
@@ -535,7 +714,9 @@ export default function ScheduleWorkoutScreen() {
                 setTitleError('');
                 setTitle(t.slice(0, 60));
               }}
-              style={styles.input}
+              onFocus={() => setFocusedField('title')}
+              onBlur={() => setFocusedField((prev) => (prev === 'title' ? null : prev))}
+              style={[styles.input, focusedField === 'title' && styles.inputFocused]}
               placeholder={t('schedule.namePlaceholder')}
               placeholderTextColor="#64748b"
               maxLength={60}
@@ -545,7 +726,7 @@ export default function ScheduleWorkoutScreen() {
             ) : null}
 
             {/* Datum + lägg till fler datum */}
-            <Text style={[styles.label, { marginTop: 10 }]}>{t('schedule.dateLabel')}</Text>
+            <Text style={[styles.label, styles.labelSpaced]}>{t('schedule.dateLabel')}</Text>
             <View style={styles.dateRow}>
               <TouchableOpacity
                 style={styles.dateInputButton}
@@ -553,7 +734,7 @@ export default function ScheduleWorkoutScreen() {
                 accessibilityLabel={t('schedule.dateOpen')}
                 accessibilityRole="button"
               >
-                <CalendarIcon size={16} color={colors.textMain} />
+                <CalendarIcon size={15} color={colors.textMain} />
                 <Text style={styles.dateInputText}>
                   {dateInput || t('schedule.datePlaceholder')}
                 </Text>
@@ -565,49 +746,25 @@ export default function ScheduleWorkoutScreen() {
                 accessibilityLabel={t('schedule.dateAdd')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={18} color="#022c22" />
+                <PlusCircle size={16} color="#022c22" />
               </TouchableOpacity>
             </View>
             {dateError ? (
               <Text style={styles.errorText}>{dateError}</Text>
             ) : null}
-            <View style={styles.quickDateRow}>
-              {quickDates.map((d) => (
-                <TouchableOpacity
-                  key={d}
-                  style={[
-                    styles.quickDateChip,
-                    dateInput === d && styles.quickDateChipActive,
-                  ]}
-                onPress={() => {
-                    setDateInput(d);
-                    setDates([d]);
-                    setDateError('');
-                  }}
-                  accessibilityLabel={t('schedule.dateQuickA11y', undefined, { isToday: d === todayStr, date: d })}
-                  accessibilityRole="button"
-                >
-                  <Text
-                    style={[
-                      styles.quickDateText,
-                      dateInput === d && styles.quickDateTextActive,
-                    ]}
-                  >
-                    {d === todayStr ? t('schedule.today') : d}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={styles.datePickerChip}
-                onPress={() => openDatePicker(dateInput)}
-              >
-                <Text style={styles.quickDateText}>{t('schedule.dateOther')}</Text>
-              </TouchableOpacity>
-            </View>
-
             {dates.length > 0 && (
               <View style={styles.datesList}>
-                <Text style={styles.sectionLabel}>{t('schedule.selectedDates')}</Text>
+                <View style={styles.datesHeaderRow}>
+                  <Text style={styles.sectionLabel}>{t('schedule.selectedDates')}</Text>
+                  <TouchableOpacity
+                    style={styles.clearDatesButton}
+                    onPress={clearAllDates}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('schedule.clearDates')}
+                  >
+                    <Text style={styles.clearDatesText}>{t('schedule.clearDates')}</Text>
+                  </TouchableOpacity>
+                </View>
                 {dates.map((d) => (
                   <View key={d} style={styles.dateItemRow}>
                     <TouchableOpacity
@@ -623,7 +780,7 @@ export default function ScheduleWorkoutScreen() {
                       activeOpacity={0.8}
                     >
                       <CalendarIcon
-                        size={14}
+                        size={13}
                         color={colors.accentBlue}
                       />
                       <Text style={styles.dateText}>{d}</Text>
@@ -640,9 +797,14 @@ export default function ScheduleWorkoutScreen() {
                 ))}
               </View>
             )}
+            {dates.length === 0 && (
+              <View style={styles.emptyDatesBox}>
+                <Text style={styles.emptyDatesText}>{t('schedule.noDatesYet')}</Text>
+              </View>
+            )}
 
             {/* Anteckningar */}
-            <Text style={[styles.label, { marginTop: 10 }]}>{t('schedule.notesLabel')}</Text>
+            <Text style={[styles.label, styles.labelSpaced]}>{t('schedule.notesLabel')}</Text>
             <TextInput
               value={notes}
               onChangeText={(value) => {
@@ -654,7 +816,13 @@ export default function ScheduleWorkoutScreen() {
                   setNotes(value);
                 }
               }}
-              style={[styles.input, styles.notesInput]}
+              onFocus={() => setFocusedField('notes')}
+              onBlur={() => setFocusedField((prev) => (prev === 'notes' ? null : prev))}
+              style={[
+                styles.input,
+                styles.notesInput,
+                focusedField === 'notes' && styles.inputFocused,
+              ]}
               placeholder={t('schedule.notesPlaceholder')}
               placeholderTextColor="#64748b"
               multiline
@@ -673,7 +841,7 @@ export default function ScheduleWorkoutScreen() {
             <View style={styles.cardHeaderRow}>
               <View style={styles.cardHeaderLeft}>
                 <View style={styles.iconCircle}>
-                  <Dumbbell size={18} color={colors.accentBlue} />
+                  <Dumbbell size={17} color={colors.accentBlue} />
                 </View>
                 <View>
                   <Text style={styles.cardTitle}>{t('schedule.exercisesTitle')}</Text>
@@ -693,8 +861,8 @@ export default function ScheduleWorkoutScreen() {
                 accessibilityLabel={t('schedule.openLibrary')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#022c22" />
-                <Text style={styles.actionChipTextPrimary}>{t('schedule.chooseExercise')}</Text>
+                <PlusCircle size={15} color={colors.textMain} />
+                <Text style={styles.actionChipText}>{t('schedule.chooseExercise')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -706,8 +874,8 @@ export default function ScheduleWorkoutScreen() {
                 accessibilityLabel={t('schedule.addCustom')}
                 accessibilityRole="button"
               >
-                <PlusCircle size={14} color="#0f172a" />
-                <Text style={styles.actionChipTextSecondary}>{t('schedule.customExercise')}</Text>
+                <PlusCircle size={15} color={colors.textMain} />
+                <Text style={styles.actionChipText}>{t('schedule.customExercise')}</Text>
               </TouchableOpacity>
 
             <TouchableOpacity
@@ -721,10 +889,29 @@ export default function ScheduleWorkoutScreen() {
               accessibilityLabel={t('schedule.chooseRoutine')}
               accessibilityRole="button"
             >
-              <ListChecks size={14} color="#0b1120" />
-                <Text style={styles.actionChipTextTertiary}>{t('schedule.routines')}</Text>
+              <ListChecks size={15} color={colors.textMain} />
+                <Text style={styles.actionChipText}>{t('schedule.routines')}</Text>
               </TouchableOpacity>
             </View>
+
+            {latestWorkoutExercises.length > 0 && (
+              <View style={styles.latestBlock}>
+                <Text style={styles.sectionLabel}>{t('schedule.latestTitle')}</Text>
+                <View style={styles.latestRow}>
+                  {latestWorkoutExercises.map((item) => (
+                    <TouchableOpacity
+                      key={`latest-${item.name}`}
+                      style={styles.latestChip}
+                      onPress={() => addLatestExercise(item.name, item.muscleGroup)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('schedule.latestA11y', undefined, item.name)}
+                    >
+                      <Text style={styles.latestChipText}>{item.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {/* EGEN ÖVNING INPUT */}
             {showCustomInput && (
@@ -733,7 +920,16 @@ export default function ScheduleWorkoutScreen() {
                 <TextInput
                   value={customName}
                   onChangeText={setCustomName}
-                  style={styles.input}
+                  onFocus={() => setFocusedField('customName')}
+                  onBlur={() =>
+                    setFocusedField((prev) =>
+                      prev === 'customName' ? null : prev
+                    )
+                  }
+                  style={[
+                    styles.input,
+                    focusedField === 'customName' && styles.inputFocused,
+                  ]}
                   placeholder={t('schedule.customPlaceholder')}
                   placeholderTextColor="#64748b"
                 />
@@ -745,7 +941,9 @@ export default function ScheduleWorkoutScreen() {
                   }}
                   activeOpacity={0.9}
                 >
-                  <Text style={styles.buttonText}>{t('schedule.addCustomCta')}</Text>
+                  <Text style={[styles.buttonText, styles.buttonTextLight]}>
+                    {t('schedule.addCustomCta')}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -799,7 +997,7 @@ export default function ScheduleWorkoutScreen() {
                             </View>
                           </View>
                           {active && (
-                            <CheckCircle2 size={16} color={colors.accentGreen} />
+                            <CheckCircle2 size={15} color={colors.accentGreen} />
                           )}
                         </TouchableOpacity>
                       );
@@ -816,7 +1014,7 @@ export default function ScheduleWorkoutScreen() {
                 selectedNames={selectedExercises.map((e) => e.name)}
                 onToggle={(name, group) => {
                   Haptics.selectionAsync();
-                  toggleExerciseFromLibrary(name);
+                  toggleExerciseFromLibrary(name, group);
                 }}
                 style={{ marginTop: 10 }}
               />
@@ -836,11 +1034,29 @@ export default function ScheduleWorkoutScreen() {
                       <View style={styles.selectedDot} />
                       <Text style={styles.selectedName}>{ex.name}</Text>
                     </View>
-                    <TouchableOpacity
-                      onPress={() => handleRemoveExercise(ex.id)}
-                    >
-                      <Text style={styles.removeText}>{t('schedule.remove')}</Text>
-                    </TouchableOpacity>
+                    <View style={styles.selectedActions}>
+                      <TouchableOpacity
+                        style={styles.moveBtn}
+                        onPress={() => moveExercise(selectedExercises.findIndex((item) => item.id === ex.id), 'up')}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('schedule.moveUpA11y', undefined, ex.name)}
+                      >
+                        <ChevronUp size={14} color={colors.textMain} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.moveBtn}
+                        onPress={() => moveExercise(selectedExercises.findIndex((item) => item.id === ex.id), 'down')}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('schedule.moveDownA11y', undefined, ex.name)}
+                      >
+                        <ChevronDown size={14} color={colors.textMain} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveExercise(ex.id)}
+                      >
+                        <Text style={styles.removeText}>{t('schedule.remove')}</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ))
               )}
@@ -852,7 +1068,7 @@ export default function ScheduleWorkoutScreen() {
                 style={[styles.button, styles.confirmButton]}
                 onPress={handleConfirmExercises}
               >
-                <Text style={styles.buttonText}>
+                <Text style={[styles.buttonText, styles.buttonTextLight]}>
                   {t('schedule.confirmExercises')}
                 </Text>
               </TouchableOpacity>
@@ -894,15 +1110,14 @@ export default function ScheduleWorkoutScreen() {
           )}
 
           {/* SPARA PLANERADE PASS */}
-            <TouchableOpacity
-              style={[styles.button, styles.saveButton]}
-              onPress={handleSavePlannedWorkouts}
-              activeOpacity={0.9}
+            <AppButton
+              title={t('schedule.saveCta')}
+              variant="success"
               accessibilityLabel={t('schedule.saveA11y')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.buttonText}>{t('schedule.saveCta')}</Text>
-            </TouchableOpacity>
+              onPress={handleSavePlannedWorkouts}
+              style={[styles.button, styles.saveButton]}
+              disabled={!isReadyToSave}
+            />
           </ScrollView>
         </KeyboardAvoidingView>
         <Modal
@@ -914,22 +1129,12 @@ export default function ScheduleWorkoutScreen() {
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>{t('schedule.modalTitle')}</Text>
+              <Text style={styles.modalHint}>{t('schedule.modalMultiHint')}</Text>
               <Calendar
                 current={calendarSeedDate}
+                minDate={todayStr}
                 onDayPress={handleCalendarSelect}
-                markedDates={{
-                  [dateInput]: {
-                    selected: true,
-                    selectedColor: colors.primary,
-                    selectedTextColor: '#0b1120',
-                  },
-                  [calendarSeedDate]: {
-                    selected: true,
-                    disableTouchEvent: true,
-                    selectedColor: '#1f2937',
-                    selectedTextColor: colors.textMain,
-                  },
-                }}
+                markedDates={calendarMarkedDates}
                 theme={{
                   backgroundColor: 'transparent',
                   calendarBackground: 'transparent',
@@ -950,6 +1155,57 @@ export default function ScheduleWorkoutScreen() {
             </View>
           </View>
         </Modal>
+        <Modal
+          visible={showConflictModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowConflictModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>{t('schedule.conflictTitle')}</Text>
+              <Text style={styles.cardText}>
+                {t('schedule.conflictBody', undefined, pendingSavePayload?.conflictingIds.length ?? 0)}
+              </Text>
+              <View style={styles.conflictActions}>
+                <AppButton
+                  title={t('schedule.conflictCancel')}
+                  variant="ghost"
+                  onPress={() => {
+                    setShowConflictModal(false);
+                    setPendingSavePayload(null);
+                  }}
+                />
+                <AppButton
+                  title={t('schedule.conflictKeepBoth')}
+                  variant="secondary"
+                  onPress={() => {
+                    if (!pendingSavePayload) return;
+                    persistPlannedWorkouts(
+                      pendingSavePayload.trimmedTitle,
+                      pendingSavePayload.finalDates,
+                      pendingSavePayload.normalizedExercises,
+                      'keep-both'
+                    );
+                  }}
+                />
+                <AppButton
+                  title={t('schedule.conflictReplace')}
+                  variant="danger"
+                  onPress={() => {
+                    if (!pendingSavePayload) return;
+                    persistPlannedWorkouts(
+                      pendingSavePayload.trimmedTitle,
+                      pendingSavePayload.finalDates,
+                      pendingSavePayload.normalizedExercises,
+                      'replace'
+                    );
+                  }}
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -966,7 +1222,44 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: spacing.md,
+  },
+  summaryCard: {
+    marginTop: 6,
+    marginBottom: 6,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: 'rgba(8,14,26,0.82)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  summaryMeta: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginBottom: 4,
+  },
+  summaryItem: {
+    flex: 1,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#2a3a50',
+    backgroundColor: '#0a1322',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 54,
+    justifyContent: 'center',
+  },
+  summaryLabel: {
+    ...typography.micro,
+    color: colors.textSoft,
+  },
+  summaryValue: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    marginTop: 2,
   },
   title: {
     ...typography.display,
@@ -979,7 +1272,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   card: {
-    marginTop: 10,
+    marginTop: layout.sectionGapLg,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -1000,12 +1293,16 @@ const styles = StyleSheet.create({
   iconCircle: {
     width: 32,
     height: 32,
-    borderRadius: 999,
+    borderRadius: radii.button,
     backgroundColor: '#020617',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#2c3d54',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
   cardTitle: {
     ...typography.title,
@@ -1015,17 +1312,18 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textSoft,
     marginTop: 2,
+    lineHeight: 18,
   },
 
   // Färgcirkel
   colorCircle: {
     width: 32,
     height: 32,
-    borderRadius: 999,
+    borderRadius: radii.button,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#0b1120',
+    borderWidth: 1.5,
+    borderColor: '#cdd9ea',
   },
   colorRow: {
     flexDirection: 'row',
@@ -1036,7 +1334,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 999,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: 'transparent',
   },
   colorOptionActive: {
@@ -1045,19 +1343,31 @@ const styles = StyleSheet.create({
 
   label: {
     ...typography.caption,
-    color: '#e5e7eb',
-    marginBottom: 4,
-    marginTop: 4,
+    color: colors.textMuted,
+    marginBottom: 6,
+    marginTop: 6,
+    letterSpacing: 0.2,
+  },
+  labelSpaced: {
+    marginTop: 12,
   },
   input: {
-    backgroundColor: '#020617',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
     color: 'white',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: inputs.borderColor,
     ...typography.body,
+  },
+  inputFocused: {
+    borderColor: colors.primaryBright,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.22,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
   },
   notesInput: {
     minHeight: 80,
@@ -1074,12 +1384,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#020617',
-    borderRadius: 12,
+    minHeight: inputs.height,
+    backgroundColor: inputs.background,
+    borderRadius: inputs.radius,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: inputs.borderColor,
+    paddingHorizontal: inputs.paddingX,
+    paddingVertical: inputs.paddingY,
   },
   dateInputText: {
     color: colors.textMain,
@@ -1089,48 +1400,54 @@ const styles = StyleSheet.create({
   addDateButton: {
     width: 40,
     height: 40,
-    borderRadius: 999,
+    borderRadius: radii.button,
     backgroundColor: colors.accentGreen,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#4ade80',
   },
   datesList: {
-    marginTop: 8,
+    marginTop: 10,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#24354c',
+    backgroundColor: '#08111f',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  quickDateRow: {
+  emptyDatesBox: {
+    marginTop: 10,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  emptyDatesText: {
+    ...typography.caption,
+    color: colors.textSoft,
+  },
+  datesHeaderRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
-    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
   },
-  quickDateChip: {
+  clearDatesButton: {
+    minHeight: 30,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
   },
-  datePickerChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: '#0b1220',
-  },
-  quickDateChipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryBright + '26',
-  },
-  quickDateText: {
+  clearDatesText: {
     ...typography.micro,
     color: colors.textSoft,
-    fontWeight: '600',
-  },
-  quickDateTextActive: {
-    ...typography.caption,
-    color: '#bbf7d0',
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
@@ -1153,6 +1470,11 @@ const styles = StyleSheet.create({
     color: colors.textMain,
     marginBottom: 8,
   },
+  modalHint: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginBottom: 8,
+  },
   modalClose: {
     marginTop: 8,
     alignSelf: 'flex-end',
@@ -1172,7 +1494,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 4,
+    minHeight: 36,
+    paddingVertical: 5,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#24354c',
   },
   dateLeft: {
     flexDirection: 'row',
@@ -1180,53 +1505,70 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dateText: {
-    ...typography.caption,
+    ...typography.bodyBold,
     color: colors.textMain,
   },
 
   actionRow: {
     flexDirection: 'row',
     gap: 8,
-    marginTop: 4,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  latestBlock: {
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  latestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  latestChip: {
+    minHeight: 30,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
+    justifyContent: 'center',
+  },
+  latestChipText: {
+    ...typography.micro,
+    color: colors.textMain,
+    fontWeight: '700',
   },
   actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderRadius: 999,
-    paddingVertical: 6,
+    borderRadius: radii.button,
+    paddingVertical: 8,
     paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#334a67',
+    minHeight: 36,
   },
   actionChipPrimary: {
-    backgroundColor: colors.success,
+    backgroundColor: '#0a1422',
   },
   actionChipSecondary: {
-    backgroundColor: colors.secondary,
+    backgroundColor: '#0a1422',
   },
   actionChipTertiary: {
-    backgroundColor: colors.primary,
+    backgroundColor: '#0a1422',
   },
-  actionChipTextPrimary: {
+  actionChipText: {
     ...typography.caption,
-    color: '#022c22',
-    fontWeight: '700',
-  },
-  actionChipTextSecondary: {
-    ...typography.caption,
-    color: '#0b1120',
-    fontWeight: '700',
-  },
-  actionChipTextTertiary: {
-    ...typography.caption,
-    color: '#0b1120',
+    color: colors.textMain,
     fontWeight: '700',
   },
 
   customExerciseBox: {
-    marginTop: 10,
-    paddingTop: 8,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#111827',
+    borderTopColor: '#1e2a3d',
   },
 
   exerciseListBox: {
@@ -1243,7 +1585,8 @@ const styles = StyleSheet.create({
   sectionLabel: {
     ...typography.caption,
     color: colors.textMain,
-    marginBottom: 6,
+    marginBottom: 8,
+    letterSpacing: 0.2,
   },
   groupSection: {
     marginBottom: 10,
@@ -1331,10 +1674,12 @@ const styles = StyleSheet.create({
   },
 
   selectedBox: {
-    marginTop: 12,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#111827',
+    marginTop: 14,
+    borderRadius: radii.button,
+    borderWidth: 1,
+    borderColor: '#24354c',
+    backgroundColor: '#08111f',
+    padding: 10,
   },
   emptyText: {
     ...typography.caption,
@@ -1344,12 +1689,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    minHeight: 36,
     paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#24354c',
   },
   selectedLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  selectedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  moveBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   selectedDot: {
     width: 6,
@@ -1358,32 +1721,38 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accentBlue,
   },
   selectedName: {
-    ...typography.bodyBold,
+    ...typography.body,
     color: colors.textMain,
   },
   removeText: {
     ...typography.micro,
-    color: '#f97316',
+    color: '#fb923c',
+    fontWeight: '700',
+  },
+  conflictActions: {
+    marginTop: 10,
+    gap: 8,
   },
 
   confirmButton: {
     marginTop: 10,
-    backgroundColor: colors.accentGreen,
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
   },
 
   templateLibrary: {
-    marginTop: 10,
-    backgroundColor: '#050b16',
-    borderRadius: 14,
+    marginTop: 12,
+    backgroundColor: '#08111f',
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: '#24354c',
     padding: 10,
   },
   templateListCard: {
-    borderRadius: 12,
+    borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#111827',
-    backgroundColor: '#020617',
+    borderColor: '#24354c',
+    backgroundColor: '#050d1a',
     overflow: 'hidden',
   },
   templateEmpty: {
@@ -1398,11 +1767,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#020617',
   },
   templateRowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#111827',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#24354c',
   },
   templateRowActive: {
-    backgroundColor: '#0b1220',
+    backgroundColor: '#10203a',
   },
   templateLeft: {
     flexDirection: 'row',
@@ -1419,7 +1788,7 @@ const styles = StyleSheet.create({
     borderColor: '#1f2937',
   },
   templateName: {
-    ...typography.bodyBold,
+    ...typography.body,
     color: colors.textMain,
   },
   templateMeta: {
@@ -1429,21 +1798,28 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    marginTop: 14,
-    borderRadius: 999,
-    paddingVertical: 11,
+    marginTop: 16,
+    borderRadius: radii.button,
+    paddingVertical: 12,
+    minHeight: inputs.height,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
   secondaryButton: {
-    backgroundColor: colors.secondary,
+    backgroundColor: '#0f172a',
+    borderColor: '#334155',
   },
   saveButton: {
-    backgroundColor: colors.primary, // planera pass: lila
+    backgroundColor: colors.success,
+    borderColor: '#4ade80',
   },
   buttonText: {
     ...typography.bodyBold,
-    color: '#0b1120',
+    color: '#04110a',
+  },
+  buttonTextLight: {
+    color: colors.textMain,
   },
   errorText: {
     ...typography.caption,

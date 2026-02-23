@@ -3,14 +3,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
+import ScreenHeader from '../../components/ui/ScreenHeader';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
@@ -38,15 +39,14 @@ export default function TrainingFrequencySelectScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.backRow}>
-          <BackPill onPress={() => router.replace('/training-frequency')} />
+          <BackPill onPress={() => router.back()} />
         </View>
-        <Text style={styles.title}>{t('stats.freqSelectTitle')}</Text>
-        <Text style={styles.subtitle}>{t('stats.freqSelectSub')}</Text>
+        <ScreenHeader title={t('stats.freqSelectTitle')} subtitle={t('stats.freqSelectSub')} tone="teal" />
 
         <GlassCard style={styles.card} elevated={false}>
           <TouchableOpacity
             style={styles.row}
-            onPress={() => router.replace('/training-frequency')}
+            onPress={() => router.push('/training-frequency')}
             accessibilityRole="button"
             accessibilityLabel={t('stats.filters.all')}
           >
@@ -59,7 +59,7 @@ export default function TrainingFrequencySelectScreen() {
             <TouchableOpacity
               style={styles.row}
               onPress={() =>
-                router.replace({ pathname: '/training-frequency', params: { exercise: ex } })
+                router.push({ pathname: '/training-frequency', params: { exercise: ex } })
               }
               accessibilityRole="button"
               accessibilityLabel={ex}

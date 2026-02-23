@@ -4,22 +4,27 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  SafeAreaView,
   Alert,
   FlatList,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
 import GlassCard from '../../components/ui/GlassCard';
 import BadgePill from '../../components/ui/BadgePill';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import StaggerReveal from '../../components/ui/StaggerReveal';
 import { colors, gradients, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
+import { loadAICoachProfile } from '../../utils/aiCoachProfile';
 import { toast } from '../../utils/toast';
-import { todayISO } from '../../utils/date';
+import { parseISODate, toISODate, todayISO } from '../../utils/date';
+import { getWeekRange } from '../../utils/weekRange';
+import { createId } from '../../utils/id';
 
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace('#', '');
@@ -32,14 +37,83 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 type CalendarDay = { dateString: string };
+const makeId = () => createId('cal');
+type CalendarMark = {
+  customStyles: {
+    container: {
+      backgroundColor: string;
+      borderRadius: number;
+      borderWidth: number;
+      borderColor: string;
+      padding?: number;
+    };
+    text: {
+      color: string;
+      fontWeight: '700' | '800';
+    };
+  };
+};
+
+const getWeekDatesFromISO = (baseISO: string) => {
+  const base = parseISODate(baseISO) || new Date();
+  const { start } = getWeekRange(base);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return toISODate(day);
+  });
+};
+
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+const parsePreferredWeekdayIndexes = (scheduleRaw: string): number[] | null => {
+  const schedule = normalizeText(scheduleRaw || '');
+  if (!schedule) return null;
+
+  if (
+    schedule.includes('vardag') ||
+    schedule.includes('weekdays') ||
+    schedule.includes('weekday') ||
+    schedule.includes('workday')
+  ) {
+    return [0, 1, 2, 3, 4];
+  }
+
+  const rules: { idx: number; keys: string[] }[] = [
+    { idx: 0, keys: ['man', 'monday', 'mon'] },
+    { idx: 1, keys: ['tis', 'tuesday', 'tue'] },
+    { idx: 2, keys: ['ons', 'wednesday', 'wed'] },
+    { idx: 3, keys: ['tor', 'thursday', 'thu'] },
+    { idx: 4, keys: ['fre', 'friday', 'fri'] },
+    { idx: 5, keys: ['lor', 'saturday', 'sat'] },
+    { idx: 6, keys: ['son', 'sunday', 'sun'] },
+  ];
+
+  const matched = rules
+    .filter((rule) => rule.keys.some((key) => schedule.includes(key)))
+    .map((rule) => rule.idx);
+
+  return matched.length > 0 ? matched : null;
+};
 
 export default function CalendarScreen() {
-  const { workouts, removeWorkout, addWorkout, templates } = useWorkouts();
+  const { workouts, removeWorkout, addWorkout, templates, weeklyGoal } = useWorkouts();
   const { t } = useTranslation();
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DONE' | 'PLANNED'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'DAY' | 'DONE' | 'PLANNED'>('ALL');
+  const [preferredWeekdays, setPreferredWeekdays] = useState<number[] | null>(null);
   const todayIso = todayISO();
+
+  useEffect(() => {
+    loadAICoachProfile().then((profile) => {
+      setPreferredWeekdays(parsePreferredWeekdayIndexes(profile.schedule || ''));
+    });
+  }, []);
 
   const nearestWorkoutDate = useMemo(() => {
     if (workouts.length === 0) return null;
@@ -63,7 +137,7 @@ export default function CalendarScreen() {
   const dedupeWorkouts = useCallback((items: typeof workouts) => {
     const byKey = new Map<string, (typeof workouts)[number]>();
     items.forEach((w) => {
-      const key = `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
+      const key = w.id || `${w.title}-${w.sourceTemplateId || ''}-${w.date}`;
       const existing = byKey.get(key);
       if (!existing || (!existing.isCompleted && w.isCompleted)) {
         byKey.set(key, w);
@@ -73,35 +147,81 @@ export default function CalendarScreen() {
   }, []);
 
   const dedupedWorkouts = useMemo(() => dedupeWorkouts(workouts), [dedupeWorkouts, workouts]);
+  const templateById = useMemo(
+    () => new Map((templates || []).map((template) => [template.id, template])),
+    [templates]
+  );
 
   const markedDates = useMemo(() => {
-    const marks: Record<
+    const marks: Record<string, CalendarMark> = {};
+    const perDay = new Map<
       string,
-      {
-        customStyles: {
-          container: object;
-          text: object;
-        };
-      }
-    > = {};
+      { hasDone: boolean; hasPlanned: boolean; doneColor: string; plannedColor: string }
+    >();
 
     dedupedWorkouts.forEach((w) => {
       const color = w.color || '#3b82f6';
-      const textColor = '#f9fafb';
-      const isPlanned = !w.isCompleted;
-      const plannedBackground = hexToRgba(color, 0.2);
+      const existing = perDay.get(w.date) || {
+        hasDone: false,
+        hasPlanned: false,
+        doneColor: color,
+        plannedColor: color,
+      };
+      if (w.isCompleted) {
+        existing.hasDone = true;
+        existing.doneColor = color;
+      } else {
+        existing.hasPlanned = true;
+        existing.plannedColor = color;
+      }
+      perDay.set(w.date, existing);
+    });
 
-      // om flera pass samma dag – vi låter sista “vinna”
-      marks[w.date] = {
+    perDay.forEach((state, date) => {
+      if (state.hasDone && state.hasPlanned) {
+        marks[date] = {
+          customStyles: {
+            container: {
+              backgroundColor: hexToRgba(state.doneColor, 0.28),
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: state.plannedColor,
+            },
+            text: {
+              color: '#f9fafb',
+              fontWeight: '700',
+            },
+          },
+        };
+        return;
+      }
+      if (state.hasDone) {
+        marks[date] = {
+          customStyles: {
+            container: {
+              backgroundColor: state.doneColor,
+              borderRadius: 10,
+              borderWidth: 0,
+              borderColor: 'transparent',
+            },
+            text: {
+              color: '#f9fafb',
+              fontWeight: '700',
+            },
+          },
+        };
+        return;
+      }
+      marks[date] = {
         customStyles: {
           container: {
-            backgroundColor: isPlanned ? plannedBackground : color,
+            backgroundColor: hexToRgba(state.plannedColor, 0.2),
             borderRadius: 10,
-            borderWidth: isPlanned ? 1 : 0,
-            borderColor: isPlanned ? color : 'transparent',
+            borderWidth: 1,
+            borderColor: state.plannedColor,
           },
           text: {
-            color: isPlanned ? '#e5e7eb' : textColor,
+            color: '#e5e7eb',
             fontWeight: '700',
           },
         },
@@ -109,23 +229,22 @@ export default function CalendarScreen() {
     });
 
     if (selectedDate) {
-      // lägg en liten extra “ring”-känsla runt vald dag
       const existing = marks[selectedDate];
       marks[selectedDate] = {
         customStyles: {
           container: {
+            ...(existing?.customStyles.container || {
+              backgroundColor: '#0f172a',
+              borderRadius: 10,
+              borderWidth: 0,
+              borderColor: 'transparent',
+            }),
             borderWidth: 2,
             borderColor: '#fbbf24',
-            borderRadius: 10,
             padding: 1,
-            backgroundColor: existing
-              ? (existing.customStyles.container as any).backgroundColor
-              : '#0f172a',
           },
           text: {
-            color: existing
-              ? (existing.customStyles.text as any).color
-              : '#e5e7eb',
+            ...(existing?.customStyles.text || { color: '#e5e7eb', fontWeight: '700' }),
             fontWeight: '800',
           },
         },
@@ -137,6 +256,10 @@ export default function CalendarScreen() {
 
   const listData = useMemo(() => {
     const base = [...dedupedWorkouts];
+    if (statusFilter === 'DAY') {
+      const filtered = selectedDate ? base.filter((w) => w.date === selectedDate) : [];
+      return filtered.sort((a, b) => b.date.localeCompare(a.date));
+    }
     if (statusFilter === 'DONE') {
       return base
         .filter((w) => w.isCompleted)
@@ -149,14 +272,41 @@ export default function CalendarScreen() {
         .sort((a, b) => a.date.localeCompare(b.date));
       return upcoming;
     }
-    // ALL -> visa valt datum om det finns, annars allt (senaste överst)
-    const filtered = selectedDate
-      ? base.filter((w) => w.date === selectedDate)
-      : base;
-    return filtered.sort((a, b) => b.date.localeCompare(a.date));
+    // ALL -> visa allt (senaste överst)
+    return base.sort((a, b) => b.date.localeCompare(a.date));
   }, [dedupedWorkouts, selectedDate, statusFilter]);
 
   const totalWorkouts = workouts.length;
+  const latestCompletedWorkout = useMemo(
+    () =>
+      [...dedupedWorkouts]
+        .filter((w) => w.isCompleted)
+        .sort((a, b) => b.date.localeCompare(a.date))[0] || null,
+    [dedupedWorkouts]
+  );
+  const weekDates = useMemo(
+    () => getWeekDatesFromISO(selectedDate || todayIso),
+    [selectedDate, todayIso]
+  );
+  const weekWorkouts = useMemo(
+    () => dedupedWorkouts.filter((w) => weekDates.includes(w.date)),
+    [dedupedWorkouts, weekDates]
+  );
+  const weekCompleted = useMemo(
+    () => weekWorkouts.filter((w) => w.isCompleted).length,
+    [weekWorkouts]
+  );
+  const weekPlanned = useMemo(
+    () => weekWorkouts.filter((w) => !w.isCompleted).length,
+    [weekWorkouts]
+  );
+  const weekMinutes = useMemo(
+    () => weekWorkouts.reduce((sum, w) => sum + (w.durationMinutes || 0), 0),
+    [weekWorkouts]
+  );
+  const weekGoal = Math.max(0, weeklyGoal || 0);
+  const weekProgress = weekGoal > 0 ? Math.min(1, weekCompleted / weekGoal) : weekCompleted > 0 ? 1 : 0;
+  const weekLeft = weekGoal > 0 ? Math.max(0, weekGoal - weekCompleted) : 0;
 
   const daySummary = useMemo(() => {
     if (!selectedDate) return null;
@@ -178,6 +328,7 @@ export default function CalendarScreen() {
 
   const handleDayPress = (day: CalendarDay) => {
     setSelectedDate(day.dateString);
+    setStatusFilter('DAY');
   };
 
   const handleDelete = (w: (typeof workouts)[number]) => {
@@ -189,21 +340,161 @@ export default function CalendarScreen() {
         onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
           removeWorkout(w.id);
-          toast(t('calendar.deletedToast'));
-          Alert.alert(t('calendar.deletedTitle'), t('calendar.deletedBody'), [
-            {
-              text: t('common.undo'),
-              style: 'default',
+          toast({
+            message: t('calendar.deletedToast'),
+            action: {
+              label: t('common.undo'),
               onPress: () => {
                 Haptics.selectionAsync();
                 addWorkout(w);
+                toast(t('common.restored'));
               },
             },
-            { text: t('common.ok'), style: 'default' },
-          ]);
+          });
         },
       },
     ]);
+  };
+
+  const handleQuickPlan = () => {
+    if (!selectedDate) return;
+    Haptics.selectionAsync();
+    router.push({
+      pathname: '/schedule-workout',
+      params: { date: selectedDate },
+    });
+  };
+
+  const handleQuickStart = () => {
+    Haptics.selectionAsync();
+    router.push({
+      pathname: '/workout/quick-workout',
+      params: {
+        title: t('calendar.quick.startDefaultTitle'),
+        color: '#3b82f6',
+      },
+    });
+  };
+
+  const handleQuickCopyLatest = () => {
+    if (!selectedDate) return;
+    if (selectedDate < todayIso) {
+      toast(t('schedule.datePast'));
+      return;
+    }
+    if (!latestCompletedWorkout) {
+      toast(t('calendar.quick.copyNoSource'));
+      return;
+    }
+
+    const copiedWorkout = {
+      ...latestCompletedWorkout,
+      id: makeId(),
+      date: selectedDate,
+      isCompleted: false,
+      durationMinutes: undefined,
+      exercises: (latestCompletedWorkout.exercises || []).map((ex) => ({
+        id: makeId(),
+        name: ex.name,
+        sets: Math.max(1, ex.sets || ex.performedSets?.length || 1),
+        reps: ex.reps || ex.performedSets?.[0]?.reps || '8-10',
+        weight: Number.isFinite(ex.weight) ? ex.weight : 0,
+        muscleGroup: ex.muscleGroup,
+      })),
+    };
+
+    addWorkout(copiedWorkout);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast(
+      t('calendar.quick.copySuccess', undefined, {
+        title: latestCompletedWorkout.title,
+        date: selectedDate,
+      })
+    );
+    setStatusFilter('ALL');
+  };
+
+  const handleAutoPlanWeek = () => {
+    if (templates.length === 0) {
+      toast(t('calendar.week.autoPlanNoTemplates'));
+      return;
+    }
+
+    const weekStart = weekDates[0];
+    const weekEnd = weekDates[6];
+    const isPastWeek = weekEnd < todayIso;
+    const isCurrentWeek = weekStart <= todayIso && todayIso <= weekEnd;
+
+    if (isPastWeek) {
+      toast(t('calendar.week.autoPlanPastWeek'));
+      return;
+    }
+
+    const weekDateSet = new Set(weekDates);
+    const weekOccupied = new Set(
+      dedupedWorkouts.filter((w) => weekDateSet.has(w.date)).map((w) => w.date)
+    );
+    const horizonDates = isCurrentWeek
+      ? weekDates.filter((iso) => iso >= todayIso)
+      : weekDates;
+    const candidateDates = preferredWeekdays
+      ? weekDates.filter(
+          (iso, index) =>
+            preferredWeekdays.includes(index) && (!isCurrentWeek || iso >= todayIso)
+        )
+      : horizonDates;
+    let freeDates = candidateDates.filter((iso) => !weekOccupied.has(iso));
+    // Fallback: if profile schedule is too narrow, use any remaining day in horizon.
+    if (freeDates.length === 0) {
+      freeDates = horizonDates.filter((iso) => !weekOccupied.has(iso));
+    }
+
+    if (freeDates.length === 0) {
+      toast(t('calendar.week.autoPlanNoSlots'));
+      return;
+    }
+
+    const coveredByPlan = weekCompleted + weekPlanned;
+    const desiredAdds =
+      weekGoal > 0 ? Math.max(0, weekGoal - coveredByPlan) : freeDates.length;
+    const addCount =
+      weekGoal > 0
+        ? Math.min(freeDates.length, Math.max(1, desiredAdds))
+        : Math.min(freeDates.length, 3);
+
+    if (weekGoal > 0 && desiredAdds === 0) {
+      toast(t('calendar.week.autoPlanGoalCovered'));
+      return;
+    }
+
+    const templateOffset = weekWorkouts.length % templates.length;
+
+    for (let i = 0; i < addCount; i += 1) {
+      const template = templates[(templateOffset + i) % templates.length];
+      const date = freeDates[i];
+      addWorkout({
+        id: makeId(),
+        title: template.name,
+        date,
+        notes: template.description || '',
+        color: template.color,
+        sourceTemplateId: template.id,
+        isCompleted: false,
+        exercises: (template.exercises || []).map((ex) => ({
+          id: makeId(),
+          name: ex.name,
+          sets: Math.max(1, ex.sets || 1),
+          reps: ex.reps || '8-10',
+          weight: Number.isFinite(ex.weight) ? ex.weight : 0,
+          muscleGroup: ex.muscleGroup,
+        })),
+      });
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast(t('calendar.week.autoPlanDone', undefined, { count: addCount }));
+    setSelectedDate(freeDates[0] || selectedDate);
+    setStatusFilter('ALL');
   };
 
   return (
@@ -212,7 +503,7 @@ export default function CalendarScreen() {
         colors={gradients.appBackground}
         style={StyleSheet.absoluteFill}
       />
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
         <FlatList
           data={listData}
           keyExtractor={(item) => item.id}
@@ -220,22 +511,71 @@ export default function CalendarScreen() {
           ListEmptyComponent={null}
           ListHeaderComponent={
             <>
-              <View style={styles.header}>
-                <Text style={styles.title}>{t('calendar.title')}</Text>
-                <Text style={styles.subtitle}>{t('calendar.subtitle')}</Text>
-              </View>
+              <StaggerReveal delay={40}>
+                <ScreenHeader
+                  title={t('calendar.title')}
+                  subtitle={t('calendar.subtitle')}
+                  tone="amber"
+                  style={styles.header}
+                />
+              </StaggerReveal>
 
-              <View style={styles.row}>
-                <GlassCard style={styles.smallCard}>
-                  <Text style={styles.smallLabel}>{t('calendar.totalLabel')}</Text>
-                  <Text style={styles.smallValue}>{totalWorkouts}</Text>
-                  <Text style={styles.smallSub}>
-                    {t('calendar.subtitle')}
-                  </Text>
+              <StaggerReveal delay={80}>
+                <View style={styles.row}>
+                  <GlassCard style={styles.smallCard}>
+                    <Text style={styles.smallLabel}>{t('calendar.totalLabel')}</Text>
+                    <Text style={styles.smallValue}>{totalWorkouts}</Text>
+                    <Text style={styles.smallSub}>
+                      {t('calendar.subtitle')}
+                    </Text>
+                  </GlassCard>
+                </View>
+              </StaggerReveal>
+
+              <StaggerReveal delay={120}>
+                <GlassCard style={styles.weekCard} tone="amber">
+                <View style={styles.weekHeaderRow}>
+                  <View style={styles.weekHeaderText}>
+                    <Text style={styles.weekTitle}>{t('calendar.week.title')}</Text>
+                    <Text style={styles.weekSub}>
+                      {t('calendar.week.range', undefined, {
+                        start: weekDates[0],
+                        end: weekDates[6],
+                      })}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.weekActionBtn}
+                    activeOpacity={0.9}
+                    onPress={handleAutoPlanWeek}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('calendar.week.autoPlanA11y')}
+                  >
+                    <Text style={styles.weekActionText}>{t('calendar.week.autoPlan')}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.weekProgressTrack}>
+                  <View style={[styles.weekProgressFill, { width: `${Math.max(6, weekProgress * 100)}%` }]} />
+                </View>
+
+                <Text style={styles.weekProgressText}>
+                  {weekGoal > 0
+                    ? t('calendar.week.progress', undefined, { done: weekCompleted, goal: weekGoal })
+                    : t('calendar.week.noGoal')}
+                </Text>
+                <Text style={styles.weekMeta}>
+                  {t('calendar.week.meta', undefined, {
+                    planned: weekPlanned,
+                    minutes: weekMinutes,
+                    left: weekLeft,
+                  })}
+                </Text>
                 </GlassCard>
-              </View>
+              </StaggerReveal>
 
-              <GlassCard style={styles.calendarCard}>
+              <StaggerReveal delay={160}>
+                <GlassCard style={styles.calendarCard}>
                 <Calendar
                   theme={{
                     backgroundColor: 'transparent',
@@ -253,33 +593,52 @@ export default function CalendarScreen() {
                   disableAllTouchEventsForDisabledDays={true}
                   enableSwipeMonths={true}
                 />
-              </GlassCard>
+                </GlassCard>
+              </StaggerReveal>
 
-              <View style={styles.section}>
+              <StaggerReveal delay={200}>
+                <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
-                  {statusFilter === 'DONE'
+                  {statusFilter === 'DAY'
+                    ? selectedDate
+                      ? t('calendar.listForDay', undefined, selectedDate)
+                      : t('calendar.selectDay')
+                    : statusFilter === 'DONE'
                     ? t('calendar.filters.done')
                     : statusFilter === 'PLANNED'
                     ? t('calendar.filters.planned')
-                    : selectedDate
-                    ? t('calendar.listForDay', undefined, selectedDate)
-                    : t('calendar.selectDay')}
+                    : t('calendar.filters.all')}
                 </Text>
                 {selectedDate && (
-                  <TouchableOpacity
-                    style={styles.planChip}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/schedule-workout',
-                        params: { date: selectedDate },
-                      })
-                    }
-                    activeOpacity={0.9}
-                    accessibilityLabel={t('calendar.planForDayA11y')}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.planChipText}>{t('calendar.planForDay')}</Text>
-                  </TouchableOpacity>
+                  <View style={styles.quickActionsRow}>
+                    <TouchableOpacity
+                      style={[styles.planChip, styles.quickActionBtn]}
+                      onPress={handleQuickPlan}
+                      activeOpacity={0.9}
+                      accessibilityLabel={t('calendar.planForDayA11y')}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.planChipText}>{t('calendar.quick.plan')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.quickActionBtn, styles.quickStartBtn]}
+                      onPress={handleQuickStart}
+                      activeOpacity={0.9}
+                      accessibilityLabel={t('calendar.quick.startA11y')}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.quickStartText}>{t('calendar.quick.start')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.quickActionBtn, styles.quickCopyBtn]}
+                      onPress={handleQuickCopyLatest}
+                      activeOpacity={0.9}
+                      accessibilityLabel={t('calendar.quick.copyA11y')}
+                      accessibilityRole="button"
+                    >
+                      <Text style={styles.quickCopyText}>{t('calendar.quick.copyLatest')}</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {daySummary && (
@@ -305,28 +664,27 @@ export default function CalendarScreen() {
                   </View>
                 )}
 
-                {selectedDate && (
-                  <View style={styles.filterRow}>
-                    {[
-                      { key: 'ALL', label: t('calendar.filters.all') },
-                      { key: 'DONE', label: t('calendar.filters.done') },
-                      { key: 'PLANNED', label: t('calendar.filters.planned') },
-                    ].map((f) => {
-                      const active = statusFilter === f.key;
-                      return (
-                        <BadgePill
-                          key={f.key}
-                          label={f.label}
-                          tone={active ? 'primary' : 'neutral'}
-                          style={styles.filterChip}
-                          onPress={() =>
-                            setStatusFilter(f.key as typeof statusFilter)
-                          }
-                        />
-                      );
-                    })}
-                  </View>
-                )}
+                <View style={styles.filterRow}>
+                  {[
+                    { key: 'ALL', label: t('calendar.filters.all') },
+                    { key: 'DAY', label: t('calendar.filters.day') },
+                    { key: 'DONE', label: t('calendar.filters.done') },
+                    { key: 'PLANNED', label: t('calendar.filters.planned') },
+                  ].map((f) => {
+                    const active = statusFilter === f.key;
+                    return (
+                      <BadgePill
+                        key={f.key}
+                        label={f.label}
+                        tone={active ? 'primary' : 'neutral'}
+                        style={styles.filterChip}
+                        onPress={() =>
+                          setStatusFilter(f.key as typeof statusFilter)
+                        }
+                      />
+                    );
+                  })}
+                </View>
 
                 {selectedDate && listData.length === 0 && (
                   <View style={styles.emptyBox}>
@@ -335,16 +693,18 @@ export default function CalendarScreen() {
                     </Text>
                   </View>
                 )}
-              </View>
+                </View>
+              </StaggerReveal>
             </>
           }
           renderItem={({ item: w }) => {
             const durationLabel = w.durationMinutes
               ? `${w.durationMinutes} min`
               : t('calendar.meta.durationUnknown');
-            const templateName = w.sourceTemplateId
-              ? templates.find((t) => t.id === w.sourceTemplateId)?.name
+            const linkedTemplate = w.sourceTemplateId
+              ? templateById.get(w.sourceTemplateId)
               : null;
+            const templateName = linkedTemplate?.name || null;
 
             return (
               <GlassCard key={w.id} style={[styles.workoutItem, styles.glowCard]}>
@@ -392,10 +752,7 @@ export default function CalendarScreen() {
                             style={[
                               styles.templateDot,
                               {
-                                backgroundColor:
-                                  templates.find((t) => t.id === w.sourceTemplateId)?.color ||
-                                  w.color ||
-                                  colors.primary,
+                                backgroundColor: linkedTemplate?.color || w.color || colors.primary,
                               },
                             ]}
                           />
@@ -442,7 +799,7 @@ export default function CalendarScreen() {
                         style={[styles.metaPill, styles.startNowButton]}
                         onPress={() => {
                           Haptics.selectionAsync();
-                         router.replace({
+                         router.push({
                             pathname: '/workout/quick-workout',
                             params: {
                               title: w.title,
@@ -527,7 +884,7 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
   header: {
@@ -570,6 +927,67 @@ const styles = StyleSheet.create({
   calendarCard: {
     marginBottom: spacing.sm + spacing.xs,
   },
+  weekCard: {
+    marginBottom: spacing.sm + spacing.xs,
+  },
+  weekHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  weekHeaderText: {
+    flex: 1,
+  },
+  weekTitle: {
+    ...typography.bodyBold,
+    color: colors.textMain,
+    fontWeight: '800',
+  },
+  weekSub: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 2,
+  },
+  weekActionBtn: {
+    minHeight: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.backgroundSoft,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekActionText: {
+    ...typography.micro,
+    color: colors.primary,
+    fontWeight: '800',
+  },
+  weekProgressTrack: {
+    width: '100%',
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surfaceElevated,
+    overflow: 'hidden',
+  },
+  weekProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.accentGreen,
+  },
+  weekProgressText: {
+    ...typography.caption,
+    color: colors.textMain,
+    marginTop: 8,
+    fontWeight: '700',
+  },
+  weekMeta: {
+    ...typography.micro,
+    color: colors.textSoft,
+    marginTop: 2,
+  },
   section: {
     marginTop: spacing.sm,
   },
@@ -579,26 +997,64 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   planChip: {
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#0b1220',
+    borderRadius: 12,
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
     borderColor: colors.primary,
-    marginBottom: 8,
+    marginBottom: 0,
   },
   planChipText: {
     ...typography.caption,
     color: colors.textMain,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  quickActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 8,
+  },
+  quickActionBtn: {
+    flex: 1,
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  quickStartBtn: {
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.accentGreen,
+  },
+  quickStartText: {
+    ...typography.micro,
+    color: colors.accentGreen,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  quickCopyBtn: {
+    borderRadius: 12,
+    backgroundColor: colors.backgroundSoft,
+    borderWidth: 1,
+    borderColor: colors.accentBlue,
+  },
+  quickCopyText: {
+    ...typography.micro,
+    color: colors.accentBlue,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   emptyBox: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 14,
-    backgroundColor: '#020617',
+    backgroundColor: colors.backgroundSoft,
   },
   emptyText: {
     color: colors.textSoft,
@@ -647,7 +1103,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   workoutNotesMuted: {
-    color: '#4b5563',
+    color: colors.textMuted,
     fontSize: 12,
     marginTop: 2,
     fontStyle: 'italic',
@@ -662,9 +1118,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   metaText: {
     color: colors.textSoft,
@@ -679,9 +1135,9 @@ const styles = StyleSheet.create({
   },
   exerciseChip: {
     borderRadius: 999,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
@@ -729,15 +1185,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: '#1e1b4b',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#312e81',
+    borderColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
   templatePillText: {
-    color: '#c4b5fd',
+    color: colors.textMain,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -746,8 +1202,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
   },
   dateText: {
     color: colors.textSoft,
@@ -768,7 +1224,7 @@ const styles = StyleSheet.create({
   },
   startNowButton: {
     borderColor: colors.accentGreen,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     marginRight: 0,
     minWidth: 120,
     alignItems: 'center',
@@ -781,7 +1237,7 @@ const styles = StyleSheet.create({
   },
   viewButton: {
     borderColor: colors.primary,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
@@ -793,14 +1249,14 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     borderColor: '#ef4444',
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
   },
   editButton: {
     borderColor: colors.primary,
-    backgroundColor: '#0b1024',
+    backgroundColor: colors.backgroundSoft,
     minWidth: 120,
     alignItems: 'center',
     justifyContent: 'center',
@@ -825,8 +1281,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
   },
   filterChipActive: {
     borderColor: colors.accentGreen,
@@ -864,9 +1320,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 12,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
   },
   summaryLabel: {
     color: colors.textMuted,
@@ -883,7 +1339,7 @@ const styles = StyleSheet.create({
   },
   timelineBar: {
     width: 2,
-    backgroundColor: '#1f2937',
+    backgroundColor: colors.cardBorder,
     borderRadius: 999,
   },
   timelineDot: {

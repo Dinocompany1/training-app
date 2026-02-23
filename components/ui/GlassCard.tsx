@@ -7,23 +7,54 @@ import {
     View,
     ViewStyle,
 } from 'react-native';
+import { uiTones } from '../../constants/theme';
+
+type CardTone = keyof typeof uiTones;
 
 type Props = {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   elevated?: boolean;
+  tone?: CardTone;
 };
 
-export default function GlassCard({ children, style, onPress, elevated = true }: Props) {
-  const content = <View style={[styles.inner, style]}>{children}</View>;
+export default function GlassCard({
+  children,
+  style,
+  onPress,
+  elevated = true,
+  tone = 'neutral',
+}: Props) {
+  const toneStyles = uiTones[tone] || uiTones.neutral;
+  const flattenedStyle = StyleSheet.flatten(style) || {};
+  const cardRadius =
+    typeof flattenedStyle.borderRadius === 'number'
+      ? flattenedStyle.borderRadius
+      : styles.container.borderRadius;
+  const content = (
+    <View
+      style={[
+        styles.inner,
+        { borderRadius: cardRadius },
+        { backgroundColor: toneStyles.background, borderColor: toneStyles.border },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 
   const Wrapper: any = onPress ? TouchableOpacity : View;
   return (
     <Wrapper
       activeOpacity={onPress ? 0.85 : undefined}
       onPress={onPress}
-      style={[styles.container, elevated ? styles.elevatedShadow : styles.flatShadow]}
+      style={[
+        styles.container,
+        { borderRadius: cardRadius },
+        elevated ? styles.elevatedShadow : styles.flatShadow,
+      ]}
     >
       {content}
     </Wrapper>
@@ -32,23 +63,23 @@ export default function GlassCard({ children, style, onPress, elevated = true }:
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 24,
-    overflow: 'hidden',
+    borderRadius: 18,
   },
   elevatedShadow: {
     shadowColor: '#000',
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 7,
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
   inner: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 24,
-    backgroundColor: 'rgba(18,22,40,0.96)', // något ljusare än bakgrunden
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(15,23,42,0.94)',
     borderWidth: 1,
-    borderColor: '#a855f733', // mjukare lila slinga
+    borderColor: '#334155',
   },
   flatShadow: {
     shadowColor: 'transparent',

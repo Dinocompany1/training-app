@@ -2,18 +2,22 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import GlassCard from '../../components/ui/GlassCard';
+import ScreenHeader from '../../components/ui/ScreenHeader';
+import BackPill from '../../components/ui/BackPill';
 import { colors, gradients, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
+import { useRouter } from 'expo-router';
 
 export default function MuscleGroupsScreen() {
+  const router = useRouter();
   const { workouts } = useWorkouts();
   const { t } = useTranslation();
 
@@ -72,10 +76,10 @@ export default function MuscleGroupsScreen() {
         contentContainerStyle={{ paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>{t('stats.muscleTitle')}</Text>
-        <Text style={styles.subtitle}>
-          {t('stats.muscleSubtitle')}
-        </Text>
+        <View style={styles.backRow}>
+          <BackPill onPress={() => router.back()} />
+        </View>
+        <ScreenHeader title={t('stats.muscleTitle')} subtitle={t('stats.muscleSubtitle')} tone="green" />
 
         {muscles.length === 0 ? (
           <View style={styles.emptyBox}>
@@ -127,6 +131,10 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 16,
     paddingTop: 12,
+  },
+  backRow: {
+    paddingTop: 8,
+    paddingBottom: 6,
   },
   barRow: {
     marginTop: 10,

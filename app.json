@@ -3,6 +3,9 @@
     "name": "training-app",
     "slug": "training-app",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trainingapp",
@@ -11,11 +14,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.dinobosnjak1.trainingapp",
+      "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Appen behöver tillgång till bilder för att du ska kunna välja och spara progressbilder.",
+        "NSPhotoLibraryAddUsageDescription": "Appen behöver tillgång för att spara valda bilder till dina träningsframsteg."
       }
     },
     "android": {
+      "package": "com.dinobosnjak1.trainingapp",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -31,6 +39,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-font",
       [
         "expo-splash-screen",
         {
@@ -52,9 +61,10 @@
       "router": {},
       "eas": {
         "projectId": "9509f7b2-5133-47a9-bb3a-d5a95f358031"
-      },
-      "EXPO_PUBLIC_SUPABASE_URL": "https://incgewubatjcrrhhzlcn.supabase.co",
-      "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImluY2dld3ViYXRqY3JyaGh6bGNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1Njc4NzIsImV4cCI6MjA4MjE0Mzg3Mn0.jSizwgNTlj5mO7jewsig9_YGFJ3cyKv7Kv_ooeKLmGw"
+      }
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
     }
   }
 }
