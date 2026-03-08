@@ -68,7 +68,7 @@ export default function WorkoutDetailScreen() {
 
   if (!workout) {
     return (
-      <View style={[styles.full, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#020617' }]}>
+      <View style={[styles.full, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }]}>
         <Text style={styles.notFoundText}>{t('workoutDetail.notFound')}</Text>
       </View>
     );
@@ -190,7 +190,7 @@ export default function WorkoutDetailScreen() {
                 }}
                 style={styles.input}
                 placeholder={t('workoutDetail.namePlaceholder')}
-                placeholderTextColor="#64748b"
+                placeholderTextColor={colors.textSoft}
                 maxLength={60}
               />
 
@@ -262,7 +262,7 @@ export default function WorkoutDetailScreen() {
                 }}
                 style={[styles.input, styles.notesInput]}
                 placeholder={t('workoutDetail.notesPlaceholder')}
-                placeholderTextColor="#64748b"
+                placeholderTextColor={colors.textSoft}
                 multiline
                 maxLength={220}
               />
@@ -291,7 +291,7 @@ export default function WorkoutDetailScreen() {
             style={[styles.button, styles.deleteButton]}
             onPress={handleDelete}
           >
-            <Trash2 size={16} color="#fee2e2" />
+            <Trash2 size={16} color={colors.textMain} />
             <Text style={styles.buttonText}>{t('workoutDetail.deleteCta')}</Text>
           </TouchableOpacity>
 
@@ -302,7 +302,7 @@ export default function WorkoutDetailScreen() {
                 accessibilityLabel={t('workoutDetail.saveA11y')}
                 accessibilityRole="button"
               >
-                <Save size={16} color="#022c22" />
+                <Save size={16} color={colors.background} />
                 <Text style={styles.buttonTextDark}>{t('common.save')}</Text>
               </TouchableOpacity>
           ) : (
@@ -317,7 +317,7 @@ export default function WorkoutDetailScreen() {
               accessibilityLabel={t('workoutDetail.editA11y')}
               accessibilityRole="button"
             >
-              <Pencil size={16} color="#e5e7eb" />
+              <Pencil size={16} color={colors.textMain} />
               <Text style={styles.buttonText}>{t('common.edit')}</Text>
             </TouchableOpacity>
           )}
@@ -339,12 +339,12 @@ export default function WorkoutDetailScreen() {
               accessibilityLabel={t('workoutDetail.startRoutine')}
             accessibilityRole="button"
           >
-            <Play size={16} color="#022c22" />
+            <Play size={16} color={colors.background} />
             <Text style={styles.buttonTextDark}>{t('workoutDetail.startRoutine')}</Text>
           </TouchableOpacity>
         ) : null}
         {detailError ? (
-          <Text style={[styles.label, { color: '#fca5a5', marginBottom: 4 }]}>
+          <Text style={[styles.label, { color: colors.warning, marginBottom: 4 }]}>
             {detailError}
           </Text>
         ) : null}
@@ -539,23 +539,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   workoutDate: {
-    color: '#9ca3af',
+    color: colors.textSoft,
     fontSize: 13,
     marginTop: 2,
     marginBottom: 10,
   },
   workoutNotes: {
-    color: '#e5e7eb',
+    color: colors.textMain,
     fontSize: 14,
   },
   workoutNotesPlaceholder: {
-    color: '#6b7280',
+    color: colors.textMuted,
     fontSize: 13,
     fontStyle: 'italic',
   },
 
   label: {
-    color: '#e5e7eb',
+    color: colors.textMain,
     fontSize: 13,
     marginBottom: 4,
   },
@@ -603,12 +603,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   dateQuickChipActive: {
     borderColor: colors.primary,
-    backgroundColor: '#14532d',
+    backgroundColor: colors.success,
   },
   dateQuickChipText: {
     color: colors.textSoft,
@@ -616,7 +616,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dateQuickChipTextActive: {
-    color: '#bbf7d0',
+    color: colors.background,
     fontWeight: '700',
   },
 
@@ -635,13 +635,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   deleteButton: {
-    backgroundColor: '#7f1d1d',
+    backgroundColor: colors.accent,
   },
   editButton: {
-    backgroundColor: '#1f2937',
+    backgroundColor: colors.surface,
   },
   saveButton: {
-    backgroundColor: '#22c55e',
+    backgroundColor: colors.success,
   },
   buttonText: {
     color: 'white',
@@ -649,7 +649,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   buttonTextDark: {
-    color: '#022c22',
+    color: colors.background,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -675,10 +675,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   exerciseItem: {
-    backgroundColor: '#020617',
+    backgroundColor: colors.background,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
@@ -708,10 +708,10 @@ const styles = StyleSheet.create({
   },
   performedSetsBox: {
     marginTop: 8,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 8,
     gap: 6,
   },
@@ -731,7 +731,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   performedSetLabel: {
-    color: '#cbd5e1',
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -764,15 +764,15 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   setButtonTextDone: {
-    color: '#bbf7d0',
+    color: colors.background,
     fontSize: 12,
     fontWeight: '800',
   },
   performedInput: {
     minWidth: 60,
-    backgroundColor: '#020617',
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 6,
@@ -787,14 +787,14 @@ const styles = StyleSheet.create({
   },
   templateBadge: {
     fontSize: 11,
-    color: '#c4b5fd',
-    backgroundColor: '#1e1b4b',
+    color: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
     alignSelf: 'flex-start',
     marginTop: 4,
     borderWidth: 1,
-    borderColor: '#312e81',
+    borderColor: colors.primary,
   },
 });

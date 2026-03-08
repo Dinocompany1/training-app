@@ -49,11 +49,11 @@ const buildInitialPerformedSets = (sets: number, reps: string, weight: number) =
   );
 
 const COLOR_OPTIONS = [
-  '#3b82f6', // blå
-  '#22c55e', // grön
-  '#f97316', // orange
-  '#e11d48', // röd/rosa
-  '#a855f7', // lila
+  colors.accentBlue, // blå
+  colors.accentGreen, // grön
+  colors.warning, // orange/amber
+  colors.accent, // röd/rosa
+  colors.primary, // lila
 ];
 type FocusedField = 'title' | 'notes' | 'customName' | null;
 
@@ -65,7 +65,7 @@ export default function RoutineBuilderScreen() {
   // Card 1 – rutininfo
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
-  const [color, setColor] = useState<string>('#3b82f6');
+  const [color, setColor] = useState<string>(colors.accentBlue);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [formError, setFormError] = useState('');
   const [weightError, setWeightError] = useState('');
@@ -371,10 +371,10 @@ export default function RoutineBuilderScreen() {
                 <View
                   style={[
                     styles.colorCircle,
-                    { backgroundColor: color || '#3b82f6' },
+                    { backgroundColor: color || colors.accentBlue },
                   ]}
                 >
-                  <Palette size={16} color="#0b1120" />
+                  <Palette size={16} color={colors.background} />
                 </View>
               </TouchableOpacity>
             </View>
@@ -522,7 +522,7 @@ export default function RoutineBuilderScreen() {
                   <Text style={styles.buttonText}>{t('routineBuilder.addCustom')}</Text>
                 </TouchableOpacity>
                 {weightError ? (
-                  <Text style={[styles.sectionLabel, { color: '#fca5a5' }]}>
+                  <Text style={[styles.sectionLabel, { color: colors.warning }]}>
                     {weightError}
                   </Text>
                 ) : null}
@@ -625,7 +625,7 @@ export default function RoutineBuilderScreen() {
               })}
 
               {weightError ? (
-                <Text style={[styles.cardText, { color: '#fca5a5', marginTop: 8 }]}>
+                <Text style={[styles.cardText, { color: colors.warning, marginTop: 8 }]}>
                   {weightError}
                 </Text>
               ) : null}
@@ -633,7 +633,7 @@ export default function RoutineBuilderScreen() {
           )}
 
           {formError ? (
-            <Text style={[styles.cardText, { color: '#fca5a5', marginTop: 4 }]}>
+            <Text style={[styles.cardText, { color: colors.warning, marginTop: 4 }]}>
               {formError}
             </Text>
           ) : null}
@@ -670,7 +670,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     borderRadius: radii.card,
     borderWidth: 1,
-    borderColor: '#2a3a50',
+    borderColor: colors.cardBorder,
     backgroundColor: 'rgba(8,14,26,0.82)',
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -681,8 +681,8 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#2a3a50',
-    backgroundColor: '#0a1322',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
     paddingHorizontal: 10,
     paddingVertical: 8,
     minHeight: 54,
@@ -730,11 +730,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: radii.button,
-    backgroundColor: '#08111f',
+    backgroundColor: colors.backgroundSoft,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#2c3f58',
+    borderColor: colors.cardBorder,
   },
   cardTitle: {
     ...typography.title,
@@ -754,7 +754,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#cdd9ea',
+    borderColor: colors.textMuted,
   },
   colorRow: {
     flexDirection: 'row',
@@ -769,7 +769,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   colorOptionActive: {
-    borderColor: '#e5e7eb',
+    borderColor: colors.textMain,
   },
 
   label: {
@@ -820,13 +820,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     minHeight: 36,
     borderWidth: 1,
-    borderColor: '#334a67',
+    borderColor: colors.cardBorder,
   },
   actionChipPrimary: {
-    backgroundColor: '#0a1422',
+    backgroundColor: colors.surface,
   },
   actionChipSecondary: {
-    backgroundColor: '#0a1422',
+    backgroundColor: colors.surface,
   },
   actionChipText: {
     ...typography.caption,
@@ -836,9 +836,9 @@ const styles = StyleSheet.create({
 
   customExerciseBox: {
     marginTop: 10,
-    backgroundColor: '#08111f',
+    backgroundColor: colors.backgroundSoft,
     borderWidth: 1,
-    borderColor: '#24354c',
+    borderColor: colors.cardBorder,
     borderRadius: radii.button,
     padding: 10,
   },
@@ -847,11 +847,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: '#111827',
-    backgroundColor: '#050b16',
+    borderTopColor: colors.cardBorder,
+    backgroundColor: colors.background,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#111827',
+    borderColor: colors.cardBorder,
     padding: 10,
   },
   sectionLabel: {
@@ -872,11 +872,11 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 999,
-    backgroundColor: '#0f172a',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
   groupTitle: {
     ...typography.bodyBold,
@@ -890,24 +890,24 @@ const styles = StyleSheet.create({
   groupListCard: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#111827',
-    backgroundColor: '#020617',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.background,
     overflow: 'hidden',
   },
   exerciseRow: {
     paddingVertical: 12,
     paddingHorizontal: 12,
-    backgroundColor: '#020617',
+    backgroundColor: colors.background,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   exerciseRowDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: '#111827',
+    borderBottomColor: colors.cardBorder,
   },
   exerciseRowActive: {
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
   },
   exerciseNameWrapper: {
     flex: 1,
@@ -920,14 +920,14 @@ const styles = StyleSheet.create({
     color: colors.textMain,
   },
   exerciseNameActive: {
-    color: '#bbf7d0',
+    color: colors.success,
     fontWeight: '600',
   },
   exerciseDot: {
     width: 8,
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#1f2937',
+    backgroundColor: colors.textSoft,
   },
   exerciseDotActive: {
     backgroundColor: colors.primary,
@@ -940,17 +940,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: '#0b1220',
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.cardBorder,
   },
 
   selectedBox: {
     marginTop: 14,
     borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#24354c',
-    backgroundColor: '#08111f',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.backgroundSoft,
     padding: 10,
   },
   emptyText: {
@@ -964,7 +964,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#24354c',
+    borderBottomColor: colors.cardBorder,
   },
   selectedLeft: {
     flexDirection: 'row',
@@ -983,14 +983,14 @@ const styles = StyleSheet.create({
   },
   removeText: {
     ...typography.micro,
-    color: '#fb923c',
+    color: colors.warning,
     fontWeight: '700',
   },
 
   confirmButton: {
     marginTop: 10,
-    backgroundColor: '#0f172a',
-    borderColor: '#334155',
+    backgroundColor: colors.surface,
+    borderColor: colors.cardBorder,
   },
 
   button: {
@@ -1003,16 +1003,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   secondaryButton: {
-    backgroundColor: '#0f172a',
-    borderColor: '#334155',
+    backgroundColor: colors.surface,
+    borderColor: colors.cardBorder,
   },
   saveButton: {
     backgroundColor: colors.primary,
-    borderColor: '#c084fc',
+    borderColor: colors.primaryBright,
   },
   buttonText: {
     ...typography.bodyBold,
-    color: '#0b1120',
+    color: colors.background,
   },
   muscleRow: {
     flexDirection: 'row',
@@ -1025,12 +1025,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#324762',
-    backgroundColor: '#0a1422',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   muscleChipActive: {
     borderColor: colors.primary,
-    backgroundColor: '#14532d',
+    backgroundColor: colors.success,
   },
   muscleChipText: {
     ...typography.micro,
@@ -1038,7 +1038,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   muscleChipTextActive: {
-    color: '#bbf7d0',
+    color: colors.background,
     fontWeight: '700',
   },
 });

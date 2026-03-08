@@ -239,8 +239,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
-    backgroundColor: '#0b1220',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   summaryLabel: {
     ...typography.micro,
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
   },
   rowWithDivider: {
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: colors.cardBorder,
   },
   pbName: {
     ...typography.bodyBold,
@@ -289,12 +289,12 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: radii.button,
     borderWidth: 1,
-    borderColor: '#334155',
-    backgroundColor: '#0f172a',
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.surface,
   },
   sortChipActive: {
-    borderColor: '#60a5fa',
-    backgroundColor: '#1e3a8a',
+    borderColor: colors.primaryBright,
+    backgroundColor: colors.primarySoft,
   },
   sortText: {
     ...typography.micro,
@@ -302,6 +302,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sortTextActive: {
-    color: '#dbeafe',
+    color: colors.textMain,
   },
 });
