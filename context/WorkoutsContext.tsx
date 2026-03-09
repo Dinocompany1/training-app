@@ -141,6 +141,57 @@ type StorageAdapter = {
 };
 const CLOUD_ROW_SUFFIX = 'app-state';
 
+const buildStarterTemplates = (): Template[] => [
+  {
+    id: 'starter-push-v1',
+    name: 'Push',
+    description: 'Bröst, axlar och triceps',
+    color: '#3b82f6',
+    exercises: [
+      { name: 'Bänkpress', sets: 4, reps: '6-8', weight: 0, muscleGroup: 'Bröst' },
+      { name: 'Axelpress', sets: 3, reps: '8-10', weight: 0, muscleGroup: 'Axlar' },
+      { name: 'Lutande hantelpress', sets: 3, reps: '8-12', weight: 0, muscleGroup: 'Bröst' },
+      { name: 'Triceps pushdown', sets: 3, reps: '10-15', weight: 0, muscleGroup: 'Armar' },
+    ],
+  },
+  {
+    id: 'starter-pull-v1',
+    name: 'Pull',
+    description: 'Rygg och biceps',
+    color: '#22c55e',
+    exercises: [
+      { name: 'Marklyft', sets: 3, reps: '4-6', weight: 0, muscleGroup: 'Rygg' },
+      { name: 'Skivstångsrodd', sets: 3, reps: '6-10', weight: 0, muscleGroup: 'Rygg' },
+      { name: 'Latsdrag', sets: 3, reps: '8-12', weight: 0, muscleGroup: 'Rygg' },
+      { name: 'Bicepscurl', sets: 3, reps: '10-15', weight: 0, muscleGroup: 'Armar' },
+    ],
+  },
+  {
+    id: 'starter-legs-v1',
+    name: 'Legs',
+    description: 'Ben och säte',
+    color: '#f97316',
+    exercises: [
+      { name: 'Knäböj', sets: 4, reps: '5-8', weight: 0, muscleGroup: 'Ben' },
+      { name: 'Rumänska marklyft', sets: 3, reps: '8-10', weight: 0, muscleGroup: 'Ben' },
+      { name: 'Utfall', sets: 3, reps: '10-12', weight: 0, muscleGroup: 'Ben' },
+      { name: 'Vadpress', sets: 3, reps: '12-20', weight: 0, muscleGroup: 'Ben' },
+    ],
+  },
+  {
+    id: 'starter-fullbody-v1',
+    name: 'Helkropp',
+    description: 'Effektivt pass för hela kroppen',
+    color: '#a855f7',
+    exercises: [
+      { name: 'Benpress', sets: 3, reps: '8-12', weight: 0, muscleGroup: 'Ben' },
+      { name: 'Hantelpress', sets: 3, reps: '8-12', weight: 0, muscleGroup: 'Bröst' },
+      { name: 'Sittande rodd', sets: 3, reps: '8-12', weight: 0, muscleGroup: 'Rygg' },
+      { name: 'Sidolyft', sets: 2, reps: '12-20', weight: 0, muscleGroup: 'Axlar' },
+    ],
+  },
+];
+
 const toIsoFallbackFromDate = (date?: string): string => {
   if (!date) return new Date(0).toISOString();
   const direct = Date.parse(`${date}T12:00:00.000Z`);
@@ -596,6 +647,9 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
           : null;
 
       if (!persisted) {
+        if (isMounted) {
+          setTemplates(buildStarterTemplates());
+        }
         if (isMounted) setLoaded(true);
         return;
       }
@@ -603,7 +657,8 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
       try {
         const migrated = migrateData(persisted.data);
         setWorkouts(migrated.workouts);
-        setTemplates(migrated.templates);
+        const nextTemplates = migrated.templates.length > 0 ? migrated.templates : buildStarterTemplates();
+        setTemplates(nextTemplates);
         setBodyPhotos(migrated.bodyPhotos);
         setWeeklyGoal(migrated.weeklyGoal);
         setCustomExercises(migrated.customExercises || []);
@@ -611,7 +666,10 @@ const asyncStorageAdapter: StorageAdapter = useMemo(
         // skriv tillbaka migrerat innehåll så filen är ren inför framtida laddningar
         const payload: PersistedData = withUpdatedAt({
           version: DATA_VERSION,
-          data: migrated,
+          data: {
+            ...migrated,
+            templates: nextTemplates,
+          },
         });
         await saveToAdapters(payload, { silent: true });
       } catch (err) {

@@ -20,7 +20,6 @@ import StaggerReveal from '../../components/ui/StaggerReveal';
 import { colors, gradients, spacing, typography } from '../../constants/theme';
 import { useWorkouts } from '../../context/WorkoutsContext';
 import { useTranslation } from '../../context/TranslationContext';
-import { loadAICoachProfile } from '../../utils/aiCoachProfile';
 import { toast } from '../../utils/toast';
 import { parseISODate, toISODate, todayISO } from '../../utils/date';
 import { getWeekRange } from '../../utils/weekRange';
@@ -64,56 +63,13 @@ const getWeekDatesFromISO = (baseISO: string) => {
   });
 };
 
-const normalizeText = (value: string) =>
-  value
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-const parsePreferredWeekdayIndexes = (scheduleRaw: string): number[] | null => {
-  const schedule = normalizeText(scheduleRaw || '');
-  if (!schedule) return null;
-
-  if (
-    schedule.includes('vardag') ||
-    schedule.includes('weekdays') ||
-    schedule.includes('weekday') ||
-    schedule.includes('workday')
-  ) {
-    return [0, 1, 2, 3, 4];
-  }
-
-  const rules: { idx: number; keys: string[] }[] = [
-    { idx: 0, keys: ['man', 'monday', 'mon'] },
-    { idx: 1, keys: ['tis', 'tuesday', 'tue'] },
-    { idx: 2, keys: ['ons', 'wednesday', 'wed'] },
-    { idx: 3, keys: ['tor', 'thursday', 'thu'] },
-    { idx: 4, keys: ['fre', 'friday', 'fri'] },
-    { idx: 5, keys: ['lor', 'saturday', 'sat'] },
-    { idx: 6, keys: ['son', 'sunday', 'sun'] },
-  ];
-
-  const matched = rules
-    .filter((rule) => rule.keys.some((key) => schedule.includes(key)))
-    .map((rule) => rule.idx);
-
-  return matched.length > 0 ? matched : null;
-};
-
 export default function CalendarScreen() {
   const { workouts, removeWorkout, addWorkout, templates, weeklyGoal } = useWorkouts();
   const { t } = useTranslation();
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DAY' | 'DONE' | 'PLANNED'>('ALL');
-  const [preferredWeekdays, setPreferredWeekdays] = useState<number[] | null>(null);
   const todayIso = todayISO();
-
-  useEffect(() => {
-    loadAICoachProfile().then((profile) => {
-      setPreferredWeekdays(parsePreferredWeekdayIndexes(profile.schedule || ''));
-    });
-  }, []);
 
   const nearestWorkoutDate = useMemo(() => {
     if (workouts.length === 0) return null;
@@ -414,89 +370,6 @@ export default function CalendarScreen() {
     setStatusFilter('ALL');
   };
 
-  const handleAutoPlanWeek = () => {
-    if (templates.length === 0) {
-      toast(t('calendar.week.autoPlanNoTemplates'));
-      return;
-    }
-
-    const weekStart = weekDates[0];
-    const weekEnd = weekDates[6];
-    const isPastWeek = weekEnd < todayIso;
-    const isCurrentWeek = weekStart <= todayIso && todayIso <= weekEnd;
-
-    if (isPastWeek) {
-      toast(t('calendar.week.autoPlanPastWeek'));
-      return;
-    }
-
-    const weekDateSet = new Set(weekDates);
-    const weekOccupied = new Set(
-      dedupedWorkouts.filter((w) => weekDateSet.has(w.date)).map((w) => w.date)
-    );
-    const horizonDates = isCurrentWeek
-      ? weekDates.filter((iso) => iso >= todayIso)
-      : weekDates;
-    const candidateDates = preferredWeekdays
-      ? weekDates.filter(
-          (iso, index) =>
-            preferredWeekdays.includes(index) && (!isCurrentWeek || iso >= todayIso)
-        )
-      : horizonDates;
-    let freeDates = candidateDates.filter((iso) => !weekOccupied.has(iso));
-    // Fallback: if profile schedule is too narrow, use any remaining day in horizon.
-    if (freeDates.length === 0) {
-      freeDates = horizonDates.filter((iso) => !weekOccupied.has(iso));
-    }
-
-    if (freeDates.length === 0) {
-      toast(t('calendar.week.autoPlanNoSlots'));
-      return;
-    }
-
-    const coveredByPlan = weekCompleted + weekPlanned;
-    const desiredAdds =
-      weekGoal > 0 ? Math.max(0, weekGoal - coveredByPlan) : freeDates.length;
-    const addCount =
-      weekGoal > 0
-        ? Math.min(freeDates.length, Math.max(1, desiredAdds))
-        : Math.min(freeDates.length, 3);
-
-    if (weekGoal > 0 && desiredAdds === 0) {
-      toast(t('calendar.week.autoPlanGoalCovered'));
-      return;
-    }
-
-    const templateOffset = weekWorkouts.length % templates.length;
-
-    for (let i = 0; i < addCount; i += 1) {
-      const template = templates[(templateOffset + i) % templates.length];
-      const date = freeDates[i];
-      addWorkout({
-        id: makeId(),
-        title: template.name,
-        date,
-        notes: template.description || '',
-        color: template.color,
-        sourceTemplateId: template.id,
-        isCompleted: false,
-        exercises: (template.exercises || []).map((ex) => ({
-          id: makeId(),
-          name: ex.name,
-          sets: Math.max(1, ex.sets || 1),
-          reps: ex.reps || '8-10',
-          weight: Number.isFinite(ex.weight) ? ex.weight : 0,
-          muscleGroup: ex.muscleGroup,
-        })),
-      });
-    }
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    toast(t('calendar.week.autoPlanDone', undefined, { count: addCount }));
-    setSelectedDate(freeDates[0] || selectedDate);
-    setStatusFilter('ALL');
-  };
-
   return (
     <View style={styles.gradient}>
       <LinearGradient
@@ -544,15 +417,6 @@ export default function CalendarScreen() {
                       })}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.weekActionBtn}
-                    activeOpacity={0.9}
-                    onPress={handleAutoPlanWeek}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('calendar.week.autoPlanA11y')}
-                  >
-                    <Text style={styles.weekActionText}>{t('calendar.week.autoPlan')}</Text>
-                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.weekProgressTrack}>
@@ -949,21 +813,6 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: colors.textSoft,
     marginTop: 2,
-  },
-  weekActionBtn: {
-    minHeight: 34,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.backgroundSoft,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  weekActionText: {
-    ...typography.micro,
-    color: colors.primary,
-    fontWeight: '800',
   },
   weekProgressTrack: {
     width: '100%',

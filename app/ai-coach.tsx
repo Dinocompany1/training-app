@@ -25,7 +25,7 @@ import { useWorkouts } from '../context/WorkoutsContext';
 import storage from '../utils/safeStorage';
 import { toISODate } from '../utils/date';
 import { getAICoachReply, type AICoachTurn } from '../utils/aiCoach';
-import { hasAICoachProfileData, loadAICoachProfile, type AICoachProfile } from '../utils/aiCoachProfile';
+import { loadAICoachProfile, type AICoachProfile } from '../utils/aiCoachProfile';
 import { createId } from '../utils/id';
 import { toast } from '../utils/toast';
 
@@ -34,8 +34,6 @@ type ChatMessage = {
   role: 'assistant' | 'user';
   text: string;
   source?: 'remote' | 'fallback';
-  workoutTitle?: string;
-  basis?: string;
 };
 
 const id = () => createId('ai');
@@ -49,9 +47,7 @@ const isChatMessage = (value: unknown): value is ChatMessage => {
     typeof obj.id === 'string' &&
     (obj.role === 'assistant' || obj.role === 'user') &&
     typeof obj.text === 'string' &&
-    (obj.source === undefined || obj.source === 'remote' || obj.source === 'fallback') &&
-    (obj.workoutTitle === undefined || typeof obj.workoutTitle === 'string') &&
-    (obj.basis === undefined || typeof obj.basis === 'string')
+    (obj.source === undefined || obj.source === 'remote' || obj.source === 'fallback')
   );
 };
 
@@ -62,7 +58,6 @@ export default function AICoachScreen() {
   const [input, setInput] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [profile, setProfile] = useState<AICoachProfile>({
     goal: '',
@@ -164,8 +159,6 @@ export default function AICoachScreen() {
           role: 'assistant',
           text: reply.text,
           source: reply.source,
-          workoutTitle: reply.workoutTitle,
-          basis: reply.basis,
         },
       ]);
     } catch {
@@ -175,100 +168,8 @@ export default function AICoachScreen() {
     }
   };
 
-  const regenerateDirectAnswer = useCallback(
-    async (assistantId: string) => {
-      if (loading) return;
-      const idx = messages.findIndex((m) => m.id === assistantId && m.role === 'assistant');
-      if (idx < 0) return;
-      let userMessage: ChatMessage | null = null;
-      for (let i = idx - 1; i >= 0; i -= 1) {
-        if (messages[i].role === 'user') {
-          userMessage = messages[i];
-          break;
-        }
-      }
-      if (!userMessage) {
-        toast(t('aiCoach.retryNoQuestion', 'Kunde inte hitta frågan att förbättra svaret från.'));
-        return;
-      }
-      setLoading(true);
-      setRetryingMessageId(assistantId);
-      const historyForAI: AICoachTurn[] = messages
-        .slice(Math.max(0, idx - 12), idx)
-        .map((item) => ({ role: item.role, text: item.text }));
-      const previousAnswerText = messages[idx]?.text || '';
-      const normalizeForCompare = (value: string) =>
-        value
-          .toLowerCase()
-          .replace(/\s+/g, ' ')
-          .replace(/[^\p{L}\p{N}\s]/gu, '')
-          .trim();
-      try {
-        const reply = await getAICoachReply({
-          lang,
-          message: userMessage.text,
-          context: aiContext,
-          history: historyForAI,
-          profile,
-          strictMode: 'strict',
-          forceDirect: true,
-          revisePreviousAnswer: previousAnswerText,
-          reviseReason:
-            lang === 'sv'
-              ? 'Svarade inte tillräckligt direkt på frågan'
-              : 'Did not answer the question directly enough',
-        });
-        const isTooSimilar =
-          normalizeForCompare(reply.text) === normalizeForCompare(previousAnswerText) ||
-          normalizeForCompare(reply.text).includes(normalizeForCompare(previousAnswerText).slice(0, 80));
-        if (isTooSimilar) {
-          toast(
-            t(
-              'aiCoach.retryStillSimilar',
-              'Svaret blev för likt. Försök igen med en mer specifik följdfråga.'
-            )
-          );
-          return;
-        }
-        setMessages((prev) => [
-          ...prev.slice(-(MAX_MESSAGES - 1)),
-          {
-            id: id(),
-            role: 'assistant',
-            text: reply.text,
-            source: reply.source,
-            workoutTitle: reply.workoutTitle,
-            basis: reply.basis,
-          },
-        ]);
-        toast(t('aiCoach.retryUpdated', 'Förbättrat svar klart.'));
-      } finally {
-        setLoading(false);
-        setRetryingMessageId(null);
-      }
-    },
-    [aiContext, lang, loading, messages, profile, t]
-  );
-
-  const fallbackSeen = messages.some((m) => m.role === 'assistant' && m.source === 'fallback');
-  const hasProfile = hasAICoachProfileData(profile);
   const sourceLabel = (source?: 'remote' | 'fallback') =>
     source === 'remote' ? t('aiCoach.sourceRemote') : t('aiCoach.sourceFallback');
-  const createWorkoutFromReply = useCallback(
-    (message: ChatMessage) => {
-      const suggestedTitle =
-        message.workoutTitle?.trim() ||
-        t('aiCoach.createWorkoutDefaultTitle', 'AI-planerat pass');
-      router.push({
-        pathname: '/workout/quick-workout',
-        params: {
-          title: suggestedTitle.slice(0, 60),
-          color: '#22c55e',
-        },
-      });
-    },
-    [router, t]
-  );
 
   return (
     <LinearGradient colors={gradients.appBackground as any} style={styles.container}>
@@ -279,8 +180,20 @@ export default function AICoachScreen() {
         >
           <StaggerReveal delay={40}>
             <View style={styles.header}>
-              <BackPill />
-              <View style={styles.headerRight}>
+              <View style={styles.headerTopRow}>
+                <BackPill />
+                <TouchableOpacity
+                  style={styles.profileBtn}
+                  activeOpacity={0.86}
+                  onPress={() => router.push('/ai-coach-profile')}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('aiCoach.profileOpen')}
+                >
+                  <UserRoundCog size={15} color={colors.textMain} />
+                  <Text style={styles.profileBtnText}>{t('aiCoach.profileButton')}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.headerBottomRow}>
                 <View style={styles.headerIcon}>
                   <Sparkles size={18} color={colors.primaryBright} />
                 </View>
@@ -292,33 +205,7 @@ export default function AICoachScreen() {
                   style={styles.headerTitle}
                 />
               </View>
-              <TouchableOpacity
-                style={styles.profileBtn}
-                activeOpacity={0.86}
-                onPress={() => router.push('/ai-coach-profile')}
-                accessibilityRole="button"
-                accessibilityLabel={t('aiCoach.profileOpen')}
-              >
-                <UserRoundCog size={15} color={colors.textMain} />
-                <Text style={styles.profileBtnText}>{t('aiCoach.profileButton')}</Text>
-              </TouchableOpacity>
             </View>
-          </StaggerReveal>
-
-          <StaggerReveal delay={90}>
-            <GlassCard style={styles.infoCard} elevated={false} tone="violet">
-              <Text style={styles.infoTitle}>{t('aiCoach.contextTitle')}</Text>
-              <Text style={styles.infoText}>
-                {t('aiCoach.contextBody', undefined, {
-                  count: completedWorkouts.length,
-                  goal: weeklyGoal,
-                })}
-              </Text>
-              <Text style={styles.profileHint}>
-                {hasProfile ? t('aiCoach.profileConnected') : t('aiCoach.profileNotSet')}
-              </Text>
-              {fallbackSeen ? <Text style={styles.fallbackHint}>{t('aiCoach.fallbackHint')}</Text> : null}
-            </GlassCard>
           </StaggerReveal>
 
           <StaggerReveal delay={130}>
@@ -360,38 +247,6 @@ export default function AICoachScreen() {
                   <Text style={styles.sourceTag}>{sourceLabel(message.source)}</Text>
                 ) : null}
                 <Text style={styles.messageText}>{message.text}</Text>
-                {message.role === 'assistant' ? (
-                  <>
-                    <TouchableOpacity
-                      style={styles.createWorkoutBtn}
-                      activeOpacity={0.86}
-                      onPress={() => createWorkoutFromReply(message)}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('aiCoach.createWorkoutFromReply', 'Skapa pass av svaret')}
-                    >
-                      <Text style={styles.createWorkoutBtnText}>
-                        {t('aiCoach.createWorkoutFromReply', 'Skapa pass av svaret')}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.missedBtn, retryingMessageId === message.id ? styles.missedBtnDisabled : null]}
-                      activeOpacity={0.86}
-                      disabled={loading}
-                      onPress={() => {
-                        void regenerateDirectAnswer(message.id);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('aiCoach.answerMissed', 'Svarade inte på min fråga')}
-                    >
-                      <Text style={styles.missedBtnText}>
-                        {retryingMessageId === message.id
-                          ? t('aiCoach.retrying', 'Förbättrar svar...')
-                          : t('aiCoach.answerMissed', 'Svarade inte på min fråga')}
-                      </Text>
-                    </TouchableOpacity>
-                    {message.basis ? <Text style={styles.basisText}>{message.basis}</Text> : null}
-                  </>
-                ) : null}
               </View>
             ))
           )}
@@ -465,13 +320,20 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   flex: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
     marginBottom: spacing.lg,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
-  headerTitle: { marginBottom: 0 },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  headerBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  headerTitle: { marginBottom: 0, flex: 1 },
   headerIcon: {
     width: 34,
     height: 34,
@@ -508,30 +370,6 @@ const styles = StyleSheet.create({
     ...typography.micro,
     color: colors.textMain,
     fontWeight: '700',
-  },
-  infoCard: {
-    borderRadius: 18,
-    marginBottom: spacing.lg,
-  },
-  infoTitle: {
-    ...typography.bodyBold,
-    color: colors.textMain,
-    fontWeight: '700',
-    marginBottom: spacing.xs,
-  },
-  infoText: {
-    ...typography.body,
-    color: colors.textMuted,
-  },
-  profileHint: {
-    ...typography.micro,
-    color: colors.textSoft,
-    marginTop: spacing.sm,
-  },
-  fallbackHint: {
-    ...typography.micro,
-    color: colors.textSoft,
-    marginTop: spacing.sm,
   },
   suggestionsRow: {
     flexDirection: 'row',
@@ -603,44 +441,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
-  },
-  createWorkoutBtn: {
-    marginTop: spacing.sm,
-    alignSelf: 'flex-start',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.accentGreen,
-    backgroundColor: 'rgba(34,197,94,0.2)',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  createWorkoutBtnText: {
-    ...typography.micro,
-    color: colors.textMain,
-    fontWeight: '800',
-  },
-  missedBtn: {
-    marginTop: spacing.xs,
-    alignSelf: 'flex-start',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
-    backgroundColor: colors.backgroundSoft,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  missedBtnText: {
-    ...typography.micro,
-    color: colors.textSoft,
-    fontWeight: '700',
-  },
-  missedBtnDisabled: {
-    opacity: 0.65,
-  },
-  basisText: {
-    marginTop: spacing.xs,
-    ...typography.micro,
-    color: colors.textSoft,
   },
   inputWrap: {
     borderTopWidth: 1,

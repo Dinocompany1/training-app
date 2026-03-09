@@ -308,7 +308,6 @@ export default function HomeScreen() {
               <View style={{ flex: 1 }}>
               <ScreenHeader
                 title={t('home.heroTitle')}
-                subtitle={t('home.heroSubtitle')}
                 tone="blue"
                 style={styles.heroHeader}
               />
